@@ -71,7 +71,7 @@ def heatmap_with_weather():
     if segment:
         segments.append(segment)
 
-    # Wetterabfrage – Key sicher über Render bereitgestellt
+    # Wetterabfrage
     WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY")
     base_url = "http://api.weatherstack.com/current"
     result = []
@@ -108,4 +108,27 @@ def heatmap_with_weather():
             "weather": weather
         })
 
-    return jsonify({"segments": result})
+    # ➕ HTML-Heatmap zusätzlich erzeugen
+    center = coordinates[0] if coordinates else [50.0, 8.0]
+    m = folium.Map(location=center, zoom_start=13)
+    for seg in segments:
+        if seg:
+            HeatMap(seg).add_to(m)
+
+    # Sicher speichern
+    static_path = os.path.join(os.path.dirname(__file__), "static")
+    if not os.path.exists(static_path):
+        os.makedirs(static_path)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    filename = f"heatmap_{timestamp}.html"
+    filepath = os.path.join(static_path, filename)
+    m.save(filepath)
+
+    base_url = "https://gpx-heatmap-api.onrender.com"
+    heatmap_url = f"{base_url}/static/{filename}"
+
+    return jsonify({
+        "segments": result,
+        "heatmap_url": heatmap_url
+    })
