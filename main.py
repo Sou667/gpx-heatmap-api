@@ -20,20 +20,23 @@ def generate_heatmap():
 
     center = coordinates[0]  # Mittelpunkt auf ersten Punkt setzen
 
+    # Heatmap erstellen
     m = folium.Map(location=center, zoom_start=13)
     HeatMap(coordinates).add_to(m)
 
-    # Ordner für Karten erstellen
-    os.makedirs("static", exist_ok=True)
+    # Ordnerpfad für static sicher erstellen
+    static_path = os.path.join(os.path.dirname(__file__), "static")
+    if not os.path.exists(static_path):
+        os.makedirs(static_path)
 
-    # Zeitstempelbasierter Dateiname
+    # Dateiname
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     filename = f"heatmap_{timestamp}.html"
-    filepath = os.path.join("static", filename)
+    filepath = os.path.join(static_path, filename)
     m.save(filepath)
 
-    # 👉 feste URL hier eintragen:
-    base_url = "https://heatmap-api.dirkness.repl.co"
+    # Feste Render-URL verwenden
+    base_url = "https://gpx-heatmap-api.onrender.com"
 
     return jsonify({
         "heatmap_url": f"{base_url}/static/{filename}"
