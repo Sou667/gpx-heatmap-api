@@ -88,12 +88,15 @@ def heatmap_with_weather():
             res = requests.get(base_url, params=params)
             if res.status_code == 200:
                 data = res.json()
-                weather = {
-                    "temperature": data["current"].get("temperature"),
-                    "wind_speed": data["current"].get("wind_speed"),
-                    "precip": data["current"].get("precip"),
-                    "condition": data["current"].get("weather_descriptions", ["–"])[0]
-                }
+                if "current" in data:
+                    weather = {
+                        "temperature": data["current"].get("temperature"),
+                        "wind_speed": data["current"].get("wind_speed"),
+                        "precip": data["current"].get("precip"),
+                        "condition": data["current"].get("weather_descriptions", ["–"])[0]
+                    }
+                else:
+                    weather = {"error": data.get("error", "Keine 'current'-Daten enthalten")}
             else:
                 weather = {"error": f"HTTP {res.status_code}"}
         except Exception as e:
