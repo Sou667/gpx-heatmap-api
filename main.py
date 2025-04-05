@@ -72,7 +72,7 @@ def heatmap_with_weather():
         segments.append(segment)
 
     # Wetterabfrage
-    WEATHERSTACK_API_KEY = "c46f7d44c360dbd7bbe824a5a8438859"  # ⬅️ HIER DEIN WEATHERSTACK-KEY EINFÜGEN
+    WEATHERSTACK_API_KEY = "c46f7d44c360dbd7bbe824a5a8438859"  # 
     base_url = "http://api.weatherstack.com/current"
     result = []
 
