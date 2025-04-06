@@ -1,8 +1,11 @@
 ##############################################################
-# main.py (mit Debug-Ausgaben für WeatherStack)
+# main.py
 #
-# 1) fetch_weather() -> print() der URL, Lat/Lon, Statuscode, Res.text
-# 2) Sonst alles unverändert
+# Enthält:
+#   - /parse-gpx  (zum GPX-Upload)
+#   - /heatmap-with-weather (statt /extended-heatmap)
+#   - /pdf-report  (zum PDF-Export)
+# inkl. Debug-Ausgaben für WeatherStack (404-Fehler)
 ##############################################################
 
 from flask import Flask, request, jsonify, send_file
@@ -23,6 +26,10 @@ import random
 import tempfile
 
 app = Flask(__name__)
+
+# ---------------------------------------------------
+# Hilfsfunktionen
+# ---------------------------------------------------
 
 def bearing(pointA, pointB):
     lat1 = math.radians(pointA[0])
@@ -69,6 +76,9 @@ def calc_slope(points):
     return round(slope, 1)
 
 def get_street_surface(lat, lon):
+    """
+    Demo-Funktion für Straßenbelag: pseudozufällig (asphalt, cobblestone, gravel).
+    """
     surfaces = ["asphalt", "cobblestone", "gravel", "asphalt", "asphalt", "gravel"]
     random.seed(int(abs(lat*1000) + abs(lon*1000)))
     return random.choice(surfaces)
@@ -110,6 +120,9 @@ def segmentize(coordinates, segment_length_km=0.2):
 
     return segments
 
+# ---------------------
+# Risikofunktion (1..5)
+# ---------------------
 def calc_risk(
     temp, wind, precip, slope,
     fahrer_typ,
@@ -215,11 +228,13 @@ def typical_injuries(risk, rennen_art):
             inj.append("Schwere Rücken-/Organverletzungen")
         return inj
 
-app = Flask(__name__)
+# ---------------------------------------------------
+# FLASK-Routen
+# ---------------------------------------------------
 
 @app.route("/")
 def home():
-    return "Erweiterte CycleDoc Heatmap (Skala 1..5) - DEBUG WeatherStack!"
+    return "Erweiterte CycleDoc Heatmap (Skala 1..5) - Route: /heatmap-with-weather"
 
 @app.route("/parse-gpx", methods=["POST"])
 def parse_gpx_route():
@@ -235,8 +250,13 @@ def parse_gpx_route():
                 coordinates.append([point.latitude, point.longitude, point.elevation])
     return jsonify({"coordinates": coordinates})
 
-@app.route("/extended-heatmap", methods=["POST"])
-def extended_heatmap():
+@app.route("/heatmap-with-weather", methods=["POST"])
+def heatmap_with_weather():
+    """
+    Hier war vorher 'extended-heatmap'. 
+    Jetzt heißt es '/heatmap-with-weather' 
+    => passender Pfad für den POST-Request
+    """
     data = request.json
     coords = data.get("coordinates", [])
     if not coords:
@@ -268,29 +288,20 @@ def extended_heatmap():
             pass
 
     WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY", "")
-    ws_base_url = "http://api.weatherstack.com/current"  # oder https:// - je nach Plan
+    ws_base_url = "http://api.weatherstack.com/current"  # oder https://
 
-    # DEBUG: print statements to see if we have a KEY and URL
-    print("DEBUG: Using WeatherStack endpoint:", ws_base_url)
-    # (Beachte: KEY nicht ausgeben wenn du ihn nicht öffentlich machen willst)
+    # Debug
+    print("DEBUG: /heatmap-with-weather called. WeatherStack endpoint:", ws_base_url)
 
     def fetch_weather(lat, lon):
-        """
-        Fetch weather from WeatherStack, with debug prints for status code + response text.
-        """
         try:
-            # Debug
-            print(f"fetch_weather() called with lat={lat}, lon={lon}")
-            if not WEATHERSTACK_API_KEY:
-                print("DEBUG: No WEATHERSTACK_API_KEY found in environment!")
+            print(f"DEBUG: fetch_weather lat={lat} lon={lon}")
             query_str = f"{lat},{lon}"
             params = {"access_key": WEATHERSTACK_API_KEY, "query": query_str}
-            
-            print("DEBUG: Making request to WeatherStack with params:", params)
+            print("DEBUG: Request params:", params)
             res = requests.get(ws_base_url, params=params, timeout=5)
-
-            print("DEBUG: WeatherStack response status:", res.status_code)
-            print("DEBUG: WeatherStack response text:", res.text)
+            print("DEBUG: Status code:", res.status_code)
+            print("DEBUG: Response text:", res.text)
 
             data_ws = res.json()
             if "current" in data_ws:
@@ -302,8 +313,9 @@ def extended_heatmap():
                     "condition": c.get("weather_descriptions", [""])[0] if c.get("weather_descriptions") else ""
                 }
             else:
-                print("DEBUG: 'current' not in data_ws. Possibly an error from WeatherStack.")
+                print("DEBUG: 'current' not in data_ws => fallback None")
                 return None
+
         except Exception as e:
             print("DEBUG: Exception in fetch_weather:", e)
             return None
@@ -416,9 +428,9 @@ def extended_heatmap():
     filepath = os.path.join(static_path, filename)
     m.save(filepath)
 
-    # URL anpassen
-    base_url = "http://localhost:5000"
-    # If you are on Render => base_url = "https://gpx-heatmap-api.onrender.com"
+    # Base URL anpassen, wenn du auf Render bist
+    base_url = "https://gpx-heatmap-api.onrender.com"
+    # Alternativ lokal: base_url = "http://localhost:5000"
 
     return jsonify({
         "heatmap_url": f"{base_url}/static/{filename}",
@@ -458,7 +470,7 @@ def pdf_report():
             injuries_str = ", ".join(injuries_str)
         else:
             injuries_str = str(injuries_str)
-        
+
         html_content += f"""
         <div class='seg-box'>
           <h3>Segment {seg.get('segment_index')}</h3>
