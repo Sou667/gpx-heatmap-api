@@ -1,12 +1,9 @@
-##############################################################
+################################################################
 # main.py
-#
-# Enthält:
-#   - /parse-gpx  (zum GPX-Upload)
-#   - /heatmap-with-weather (statt /extended-heatmap)
-#   - /pdf-report  (zum PDF-Export)
-# inkl. Debug-Ausgaben für WeatherStack (404-Fehler)
-##############################################################
+# - Zeigt gesamten Track auf der Folium-Karte (fit_bounds).
+# - Einfache Farbschema: 1-2 (grün), 3 (orange), 4-5 (rot).
+# - Popup für Sani: Mehr Kontext (z. B. "Scharfe Kurve").
+################################################################
 
 from flask import Flask, request, jsonify, send_file
 import folium
@@ -26,10 +23,6 @@ import random
 import tempfile
 
 app = Flask(__name__)
-
-# ---------------------------------------------------
-# Hilfsfunktionen
-# ---------------------------------------------------
 
 def bearing(pointA, pointB):
     lat1 = math.radians(pointA[0])
@@ -76,9 +69,6 @@ def calc_slope(points):
     return round(slope, 1)
 
 def get_street_surface(lat, lon):
-    """
-    Demo-Funktion für Straßenbelag: pseudozufällig (asphalt, cobblestone, gravel).
-    """
     surfaces = ["asphalt", "cobblestone", "gravel", "asphalt", "asphalt", "gravel"]
     random.seed(int(abs(lat*1000) + abs(lon*1000)))
     return random.choice(surfaces)
@@ -120,9 +110,6 @@ def segmentize(coordinates, segment_length_km=0.2):
 
     return segments
 
-# ---------------------
-# Risikofunktion (1..5)
-# ---------------------
 def calc_risk(
     temp, wind, precip, slope,
     fahrer_typ,
@@ -152,6 +139,7 @@ def calc_risk(
     if precip >= 1:
         risiko += 1
 
+    # Steigung
     if abs(slope) > 4:
         risiko += 1
 
@@ -228,13 +216,11 @@ def typical_injuries(risk, rennen_art):
             inj.append("Schwere Rücken-/Organverletzungen")
         return inj
 
-# ---------------------------------------------------
-# FLASK-Routen
-# ---------------------------------------------------
+app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Erweiterte CycleDoc Heatmap (Skala 1..5) - Route: /heatmap-with-weather"
+    return "Erweiterte CycleDoc Heatmap - FitBounds / Popup Info!"
 
 @app.route("/parse-gpx", methods=["POST"])
 def parse_gpx_route():
@@ -252,11 +238,6 @@ def parse_gpx_route():
 
 @app.route("/heatmap-with-weather", methods=["POST"])
 def heatmap_with_weather():
-    """
-    Hier war vorher 'extended-heatmap'. 
-    Jetzt heißt es '/heatmap-with-weather' 
-    => passender Pfad für den POST-Request
-    """
     data = request.json
     coords = data.get("coordinates", [])
     if not coords:
@@ -288,21 +269,13 @@ def heatmap_with_weather():
             pass
 
     WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY", "")
-    ws_base_url = "http://api.weatherstack.com/current"  # oder https://
-
-    # Debug
-    print("DEBUG: /heatmap-with-weather called. WeatherStack endpoint:", ws_base_url)
+    ws_base_url = "http://api.weatherstack.com/current"
 
     def fetch_weather(lat, lon):
         try:
-            print(f"DEBUG: fetch_weather lat={lat} lon={lon}")
             query_str = f"{lat},{lon}"
             params = {"access_key": WEATHERSTACK_API_KEY, "query": query_str}
-            print("DEBUG: Request params:", params)
             res = requests.get(ws_base_url, params=params, timeout=5)
-            print("DEBUG: Status code:", res.status_code)
-            print("DEBUG: Response text:", res.text)
-
             data_ws = res.json()
             if "current" in data_ws:
                 c = data_ws["current"]
@@ -313,14 +286,13 @@ def heatmap_with_weather():
                     "condition": c.get("weather_descriptions", [""])[0] if c.get("weather_descriptions") else ""
                 }
             else:
-                print("DEBUG: 'current' not in data_ws => fallback None")
                 return None
-
-        except Exception as e:
-            print("DEBUG: Exception in fetch_weather:", e)
+        except Exception:
             return None
 
     segment_infos = []
+    all_locs = []  # zum fit_bounds
+
     for i, seg in enumerate(segments):
         center_idx = len(seg)//2
         center_pt = seg[center_idx]
@@ -388,36 +360,64 @@ def heatmap_with_weather():
             "sani_needed": sani_needed
         })
 
-    map_center = segment_infos[0]["center"]
-    m = folium.Map(location=[map_center["lat"], map_center["lon"]], zoom_start=13)
+        # Sammle alle Koordinaten (Segment-Punkte) für fit_bounds
+        for p in seg:
+            all_locs.append((p[0], p[1]))
 
-    risk_colors = {
-        1: "green",
-        2: "yellow",
-        3: "orange",
-        4: "red",
-        5: "darkred"
-    }
+    # ----------- Karte -------------
+    # Start minimal
+    m = folium.Map(location=[0,0], zoom_start=2)  # egal, wir fit_bounds gleich
+
+    # Simple color map: 1-2 => green, 3 => orange, 4-5 => red
+    # (Die Diss. beschreibt 1..5, wir vereinfachen wie gewünscht.)
+    def color_for_risk(r):
+        if r <= 2:
+            return "green"
+        elif r == 3:
+            return "orange"
+        else:
+            return "red"
 
     for seg_info, seg_points in zip(segment_infos, segments):
-        c = risk_colors.get(seg_info["risk"], "green")
+        c = color_for_risk(seg_info["risk"])
         latlons = [(p[0], p[1]) for p in seg_points]
 
         folium.PolyLine(
             locations=latlons,
             color=c,
             weight=5,
-            popup=(f"Seg {seg_info['segment_index']}, "
-                   f"R {seg_info['risk']}, "
-                   f"{seg_info['injuries']}")
+            popup=f"Segment {seg_info['segment_index']} (Risk {seg_info['risk']})"
         ).add_to(m)
 
+        # Mehr Info beim Saniposten
         if seg_info["sani_needed"]:
+            # Sammle Gründe
+            reasons = []
+            if seg_info["sharp_curve"]:
+                reasons.append("Scharfe Kurve")
+            if abs(seg_info["slope"]) > 4:
+                reasons.append("Steile Passage")
+            if seg_info["street_surface"] in ["cobblestone","gravel"]:
+                reasons.append("Rutschige Oberfläche")
+
+            reason_text = ", ".join(reasons) if reasons else "Hohe Faktoren"
+            inj_text = ", ".join(seg_info["injuries"])
+
+            popup_text = (
+                f"Sani empfohlen! (Risk {seg_info['risk']})\n"
+                f"Grund: {reason_text}\n"
+                f"Verletzungen: {inj_text}"
+            )
+
             folium.Marker(
                 location=[seg_info["center"]["lat"], seg_info["center"]["lon"]],
-                popup=f"Sani empfohlen (Risk {seg_info['risk']})",
+                popup=popup_text,
                 icon=folium.Icon(icon="plus", prefix="fa", color="red")
             ).add_to(m)
+
+    # Fit bounds => alle locs ins Bild
+    if all_locs:
+        m.fit_bounds(all_locs)
 
     static_path = os.path.join(os.path.dirname(__file__), "static")
     if not os.path.exists(static_path):
@@ -428,9 +428,8 @@ def heatmap_with_weather():
     filepath = os.path.join(static_path, filename)
     m.save(filepath)
 
-    # Base URL anpassen, wenn du auf Render bist
+    # Base-URL => anpassen
     base_url = "https://gpx-heatmap-api.onrender.com"
-    # Alternativ lokal: base_url = "http://localhost:5000"
 
     return jsonify({
         "heatmap_url": f"{base_url}/static/{filename}",
