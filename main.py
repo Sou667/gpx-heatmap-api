@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from geopy.distance import geodesic
 import requests
+import xml.etree.ElementTree as ET
 
 app = Flask(__name__)
 
@@ -12,7 +13,27 @@ app = Flask(__name__)
 def home():
     return 'GPX Heatmap API läuft!'
 
-# 🔹 Klassische Heatmap (einfach)
+@app.route('/parse-gpx', methods=['POST'])
+def parse_gpx():
+    if 'file' not in request.files:
+        return jsonify({"error": "Keine Datei empfangen."}), 400
+
+    file = request.files['file']
+    try:
+        tree = ET.parse(file)
+        root = tree.getroot()
+        namespace = {'default': 'http://www.topografix.com/GPX/1/1'}
+        coords = []
+
+        for trkpt in root.findall('.//default:trkpt', namespace):
+            lat = float(trkpt.attrib['lat'])
+            lon = float(trkpt.attrib['lon'])
+            coords.append([lat, lon])
+
+        return jsonify({"coordinates": coords})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/heatmap', methods=['POST'])
 def generate_heatmap():
     data = request.json
@@ -37,8 +58,6 @@ def generate_heatmap():
     base_url = "https://gpx-heatmap-api.onrender.com"
     return jsonify({"heatmap_url": f"{base_url}/static/{filename}"})
 
-
-# 🔹 Heatmap mit Wetterdaten und Sanitätermarkern
 @app.route('/heatmap-with-weather', methods=['POST'])
 def heatmap_with_weather():
     data = request.json
@@ -47,7 +66,6 @@ def heatmap_with_weather():
     if not coordinates or not isinstance(coordinates, list):
         return jsonify({"error": "Keine gültigen Koordinaten empfangen"}), 400
 
-    # Feine Segmentierung (~0.2 km)
     segments = []
     segment = []
     segment_distance = 0.0
@@ -94,8 +112,6 @@ def heatmap_with_weather():
                         "precip": data["current"].get("precip"),
                         "condition": data["current"].get("weather_descriptions", ["–"])[0]
                     }
-
-                    # Marker setzen bei erhöhtem Risiko (z. B. Wind > 25 km/h oder Regen)
                     if weather["wind_speed"] and weather["wind_speed"] >= 25 or weather["precip"] > 0:
                         marker_coords.append({
                             "lat": lat,
@@ -115,7 +131,6 @@ def heatmap_with_weather():
             "weather": weather
         })
 
-    # HTML-Heatmap erzeugen
     center = coordinates[0] if coordinates else [50.0, 8.0]
     m = folium.Map(location=center, zoom_start=13)
 
