@@ -3,3 +3,4 @@ folium
 gunicorn
 geopy
 gpxpy
+astral
