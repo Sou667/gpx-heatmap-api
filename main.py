@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 import folium
 from folium.plugins import HeatMap
@@ -5,43 +6,75 @@ import os
 from datetime import datetime
 from geopy.distance import geodesic
 import requests
+import gpxpy
+import math
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Multifaktorielle Heatmap API aktiv."
+    return "GPX Heatmap API läuft!"
+
+def berechne_steigung(p1, p2):
+    dist = geodesic((p1.latitude, p1.longitude), (p2.latitude, p2.longitude)).meters
+    höhe = (p2.elevation or 0) - (p1.elevation or 0)
+    if dist == 0:
+        return 0.0
+    return round((höhe / dist) * 100, 1)
+
+def terrain_klassifikation(steigung):
+    if steigung < -6:
+        return "Gefährliche Abfahrt"
+    elif steigung < -3:
+        return "Leichte Abfahrt"
+    elif steigung < 3:
+        return "Flach"
+    elif steigung < 6:
+        return "Leichte Steigung"
+    else:
+        return "Starke Steigung"
+
+@app.route("/parse-gpx", methods=["POST"])
+def parse_gpx():
+    if "file" not in request.files:
+        return jsonify({"error": "Keine Datei empfangen."}), 400
+    gpx_file = request.files["file"]
+    gpx = gpxpy.parse(gpx_file.stream)
+    coords = []
+    for track in gpx.tracks:
+        for segment in track.segments:
+            for point in segment.points:
+                coords.append([point.latitude, point.longitude, point.elevation])
+    return jsonify({"coordinates": coords})
 
 @app.route("/heatmap-full-context", methods=["POST"])
-def full_context_heatmap():
-    data = request.json
+def heatmap_full_context():
+    data = request.get_json()
     coordinates = data.get("coordinates", [])
-    fahrer = data.get("fahrer", "hobby")  # 'hobby' oder 'profi'
+    fahrer = data.get("fahrer", "hobby")
     teilnehmer = data.get("teilnehmer", 50)
-    geschlecht = data.get("geschlecht", "gemischt")  # 'm', 'w', 'gemischt'
-    alter = data.get("alter", "erwachsene")  # 'jugend', 'erwachsene', 'senioren'
-    disziplin = data.get("disziplin", "straße")  # 'straße', 'gravel', 'mtb', ...
+    geschlecht = data.get("geschlecht", "gemischt")
+    alter = data.get("alter", "erwachsene")
+    disziplin = data.get("disziplin", "strasse")
 
     if not coordinates or not isinstance(coordinates, list):
         return jsonify({"error": "Keine gültigen Koordinaten empfangen"}), 400
 
-    WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY")
-    weather_url = "http://api.weatherstack.com/current"
-
     segments = []
     segment = []
     segment_distance = 0.0
-    segment_length_km = 0.2
-    total_distance = 0.0
+    segment_length_target_km = 0.2
     prev_point = None
 
-    for point in coordinates:
+    for pt in coordinates:
+        lat, lon = pt[0], pt[1]
+        ele = pt[2] if len(pt) > 2 else 0
+        point = type("P", (), {"latitude": lat, "longitude": lon, "elevation": ele})
         if prev_point:
-            dist = geodesic(prev_point, point).kilometers
-            total_distance += dist
-            segment_distance += dist
+            d = geodesic((prev_point.latitude, prev_point.longitude), (lat, lon)).kilometers
+            segment_distance += d
             segment.append(point)
-            if segment_distance >= segment_length_km:
+            if segment_distance >= segment_length_target_km:
                 segments.append(segment)
                 segment = []
                 segment_distance = 0.0
@@ -51,102 +84,106 @@ def full_context_heatmap():
     if segment:
         segments.append(segment)
 
+    WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY")
+    base_url = "http://api.weatherstack.com/current"
     result = []
-    html_map = None
-    segment_counter = 0
+    map_coords = []
 
-    for seg in segments:
-        segment_counter += 1
-        center = seg[len(seg)//2]
-        lat, lon = center
-        params = {"access_key": WEATHERSTACK_API_KEY, "query": f"{lat},{lon}"}
+    for i, seg in enumerate(segments):
+        center = seg[len(seg) // 2]
+        lat, lon = center.latitude, center.longitude
+        map_coords.append([lat, lon])
+        params = {
+            "access_key": WEATHERSTACK_API_KEY,
+            "query": f"{lat},{lon}"
+        }
+
         weather = {}
         try:
-            res = requests.get(weather_url, params=params)
+            res = requests.get(base_url, params=params)
             if res.status_code == 200:
                 data = res.json()
-                current = data["current"]
-                temp = current.get("temperature", 0)
-                wind = current.get("wind_speed", 0)
-                rain = current.get("precip", 0)
-                condition = current.get("weather_descriptions", ["–"])[0]
+                if "current" in data:
+                    current = data["current"]
+                    weather = {
+                        "temperature": current.get("temperature"),
+                        "wind_speed": current.get("wind_speed"),
+                        "precip": current.get("precip"),
+                        "condition": current.get("weather_descriptions", ["–"])[0]
+                    }
+                else:
+                    weather = {"error": data.get("error", "Keine 'current'-Daten enthalten")}
             else:
-                temp = 0
-                wind = 0
-                rain = 0
-                condition = "Unbekannt"
-        except Exception:
-            temp = 0
-            wind = 0
-            rain = 0
-            condition = "Fehler"
+                weather = {"error": f"HTTP {res.status_code}"}
+        except Exception as e:
+            weather = {"error": str(e)}
 
-        # Risikobewertung
-        risiko = 1
+        steigung = berechne_steigung(seg[0], seg[-1])
+        terrain = terrain_klassifikation(steigung)
+
+        risk = 1
         verletzungen = []
         sani = None
 
-        # Wetterbasiert
-        if temp <= 5:
-            risiko += 1
-            verletzungen.append("❄️ Muskelverspannung bei Kälte")
-        if wind >= 16:
-            risiko += 1
-            verletzungen.append("💨 Kontrollverlust bei Wind")
-        if rain > 0:
-            risiko += 1
-            verletzungen.append("☔ Rutschgefahr bei Nässe")
-
-        # Terrainunabhängig: Ermüdung basierend auf Renndistanz
-        km_pos = segment_counter * 0.2
-        if km_pos > 0.75 * total_distance:
-            risiko += 1
-            verletzungen.append("🧠 Ermüdungseffekt (Streckenende)")
-
-        # Fahrerprofil
         if fahrer == "hobby":
-            risiko += 1
+            risk += 1
             verletzungen.append("🚴‍♂️ Geringere Kontrolle bei Amateuren")
         if alter == "senioren":
-            risiko += 1
+            risk += 1
             verletzungen.append("👵 Höheres Sturzrisiko laut Studienlage")
+        if weather.get("wind_speed", 0) >= 16:
+            risk += 1
+            verletzungen.append("🌬 Kontrollverlust bei Seitenwind möglich")
+        if weather.get("temperature", 99) < 6:
+            risk += 1
+            verletzungen.append("❄️ Risiko für Muskelverspannung")
+        if terrain in ["Starke Steigung", "Gefährliche Abfahrt"]:
+            risk += 1
+            verletzungen.append("⛰ Gelände erhöht Sturzgefahr")
 
-        # Teilnehmerdichte
-        if teilnehmer >= 100 and risiko >= 3:
+        if risk >= 3 and teilnehmer >= 100:
             sani = "🚑 Saniposten empfohlen bei hoher Dichte"
 
-        # Farbzuweisung
-        color = 'green' if risiko == 1 else 'yellow' if risiko == 2 else 'orange' if risiko == 3 else 'red'
-
-        # Karte
-        if html_map is None:
-            html_map = folium.Map(location=center, zoom_start=14)
-
-        popup = f"<b>Segment {segment_counter}</b><br>🌡 {temp}°C, 💨 {wind} km/h, ☔ {rain} mm<br>⚠️ Risiko: {risiko}/5<br>" + "<br>".join(verletzungen)
-        folium.PolyLine(seg, color=color, weight=5, popup=popup).add_to(html_map)
-
-        if sani:
-            folium.Marker(location=center, popup=sani, icon=folium.Icon(color="red", icon="plus-sign")).add_to(html_map)
-
         result.append({
-            "segment_index": segment_counter,
+            "segment_index": i + 1,
             "segment_center": {"lat": lat, "lon": lon},
-            "weather": {
-                "temperature": temp,
-                "wind_speed": wind,
-                "precip": rain,
-                "condition": condition
-            },
-            "risk": risiko,
+            "risk": min(risk, 5),
+            "weather": weather,
+            "terrain": terrain,
+            "steigung": steigung,
             "verletzungen": verletzungen,
             "sani": sani
         })
 
+    m = folium.Map(location=map_coords[0], zoom_start=14)
+    colors = {1: "green", 2: "yellow", 3: "orange", 4: "red", 5: "black"}
+
+    for seg in result:
+        color = colors.get(seg["risk"], "gray")
+        folium.CircleMarker(
+            location=[seg["segment_center"]["lat"], seg["segment_center"]["lon"]],
+            radius=6,
+            color=color,
+            fill=True,
+            fill_opacity=0.8,
+            popup=f"Risikostufe: {seg['risk']}<br>{seg['terrain']}<br>Temp: {seg['weather'].get('temperature')}°C<br>Wind: {seg['weather'].get('wind_speed')} km/h<br>{'<br>'.join(seg['verletzungen'])}"
+        ).add_to(m)
+
+        if seg["sani"]:
+            folium.Marker(
+                location=[seg["segment_center"]["lat"], seg["segment_center"]["lon"]],
+                popup=seg["sani"],
+                icon=folium.Icon(color="red", icon="plus-sign")
+            ).add_to(m)
+
     static_path = os.path.join(os.path.dirname(__file__), "static")
-    os.makedirs(static_path, exist_ok=True)
-    filename = f"heatmap_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html"
+    if not os.path.exists(static_path):
+        os.makedirs(static_path)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    filename = f"heatmap_{timestamp}.html"
     filepath = os.path.join(static_path, filename)
-    html_map.save(filepath)
+    m.save(filepath)
 
     base_url = "https://gpx-heatmap-api.onrender.com"
     return jsonify({"heatmap_url": f"{base_url}/static/{filename}", "segments": result})
