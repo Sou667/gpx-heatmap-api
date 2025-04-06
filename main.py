@@ -1,9 +1,13 @@
-################################################################
+################################################################ 
 # main.py
 # - Zeigt gesamten Track auf der Folium-Karte (fit_bounds).
 # - Einfache Farbschema: 1-2 (grün), 3 (orange), 4-5 (rot).
 # - Popup für Sani: Mehr Kontext (z. B. "Scharfe Kurve").
 ################################################################
+
+# 1. Zusatz: Erstelle Ordner zum Zwischenspeichern
+import os
+os.makedirs("chunks", exist_ok=True)  # <-- NEU: für serverseitiges Chunking
 
 from flask import Flask, request, jsonify, send_file
 import folium
