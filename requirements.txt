@@ -1,6 +1,8 @@
 flask
+requests
 folium
-gunicorn
 geopy
 gpxpy
 astral
+weasyprint
+gunicorn
