@@ -1,3 +1,44 @@
+from flask import Flask, request, jsonify
+import folium
+from folium.plugins import HeatMap
+import os
+from datetime import datetime
+from geopy.distance import geodesic
+import requests
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return 'GPX Heatmap API läuft!'
+
+# 🔹 Klassische Heatmap (einfach)
+@app.route('/heatmap', methods=['POST'])
+def generate_heatmap():
+    data = request.json
+    coordinates = data.get("coordinates", [])
+
+    if not coordinates or not isinstance(coordinates, list):
+        return jsonify({"error": "Keine gültigen Koordinaten empfangen"}), 400
+
+    center = coordinates[0]
+    m = folium.Map(location=center, zoom_start=13)
+    HeatMap(coordinates).add_to(m)
+
+    static_path = os.path.join(os.path.dirname(__file__), "static")
+    if not os.path.exists(static_path):
+        os.makedirs(static_path)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    filename = f"heatmap_{timestamp}.html"
+    filepath = os.path.join(static_path, filename)
+    m.save(filepath)
+
+    base_url = "https://gpx-heatmap-api.onrender.com"
+    return jsonify({"heatmap_url": f"{base_url}/static/{filename}"})
+
+
+# 🔹 Heatmap mit Wetterdaten und Sanitätermarkern
 @app.route('/heatmap-with-weather', methods=['POST'])
 def heatmap_with_weather():
     data = request.json
@@ -29,7 +70,6 @@ def heatmap_with_weather():
     if segment:
         segments.append(segment)
 
-    # Wetterdaten pro Segment abrufen
     WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY")
     base_url = "http://api.weatherstack.com/current"
     result = []
@@ -83,7 +123,6 @@ def heatmap_with_weather():
         if seg:
             HeatMap(seg).add_to(m)
 
-    # Marker für Sanitäterpositionen einfügen
     for marker in marker_coords:
         folium.Marker(
             location=[marker["lat"], marker["lon"]],
@@ -91,7 +130,6 @@ def heatmap_with_weather():
             icon=folium.Icon(color="red", icon="plus", prefix="fa")
         ).add_to(m)
 
-    # HTML speichern
     static_path = os.path.join(os.path.dirname(__file__), "static")
     if not os.path.exists(static_path):
         os.makedirs(static_path)
