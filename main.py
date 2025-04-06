@@ -1,3 +1,13 @@
+##############################################################
+# main.py
+# 
+# Vollständiger Code, der die Dissertation-Punkte berücksichtigt.
+# 
+# Starten lokal: 
+#   python main.py 
+# Oder:
+#   flask run --host=0.0.0.0 --port=5000
+##############################################################
 from flask import Flask, request, jsonify
 import folium
 import os
@@ -8,11 +18,10 @@ import requests
 import gpxpy
 import gpxpy.gpx
 
-# Für Tag/Nacht-Berechnung:
+# Für Tag/Nacht-Bestimmung
 from astral import LocationInfo
 from astral.sun import sun
 
-# Für Demo-Straßenbelag (Zufall):
 import random
 
 app = Flask(__name__)
@@ -24,7 +33,7 @@ app = Flask(__name__)
 def bearing(pointA, pointB):
     """
     Berechnet die Kursrichtung (Bearing) von pointA nach pointB.
-    pointA, pointB: (lat, lon) in Grad
+    pointA, pointB: (lat, lon)
     Rückgabe: Grad 0..360
     """
     lat1 = math.radians(pointA[0])
@@ -48,8 +57,8 @@ def angle_between(b1, b2):
 
 def detect_sharp_curve(segment_points, threshold=60):
     """
-    Prüft, ob es in den Punkten eine 'scharfe Kurve' (starke Richtungsänderung) gibt.
-    threshold: Winkel in Grad, ab dem wir sagen: "scharfe Kurve"
+    Prüft, ob es im Segment eine 'scharfe Kurve' (starke Richtungsänderung) gibt.
+    threshold: Winkel in Grad, ab dem wir sagen: "scharfe Kurve".
     """
     if len(segment_points) < 3:
         return False
@@ -67,8 +76,7 @@ def detect_sharp_curve(segment_points, threshold=60):
 
 def calc_slope(points):
     """
-    Einfache Steigungsberechnung in Prozent fürs ganze Segment:
-    (Höhediff) / (horizontale Distanz in Metern) * 100.
+    Steigungsberechnung in % (Start- vs. Endpunkt).
     """
     if len(points) < 2:
         return 0.0
@@ -83,78 +91,34 @@ def calc_slope(points):
 
 def get_street_surface(lat, lon):
     """
-    Beispiel-Funktion für Straßenbelag. In echt würdest du hier z. B. Overpass-API
-    oder eine Datenbank abfragen. Hier nur Zufall als Demo.
+    Beispiel-Funktion für Straßenbelag (Demo).
+    In Wirklichkeit würdest du hier Overpass (OSM) oder eine Datenbank befragen.
     """
     surfaces = ["asphalt", "cobblestone", "gravel", "asphalt", "asphalt", "gravel"]
-    # Pseudo-Zufall basierend auf Koordinaten
     random.seed(int(abs(lat*1000) + abs(lon*1000)))
     return random.choice(surfaces)
 
-def calc_risk(temp, wind, precip, slope, fahrer_typ, teilnehmer,
-              nighttime=False, sharp_curve=False,
-              rennen_art="unknown", geschlecht="mixed",
-              street_surface="asphalt"):
+def is_nighttime_at(dt, lat, lon):
     """
-    Beispielhafte Risiko-Formel, die diverse Faktoren berücksichtigt.
+    Tag/Nacht-Abfrage über astral.
+    dt: datetime, lat/lon: Koordinaten
     """
-    risiko = 1
+    location = LocationInfo(
+        name="RaceLocation",
+        region="",
+        timezone="UTC",  # ggf. anpassen
+        latitude=lat,
+        longitude=lon
+    )
+    s = sun(location.observer, date=dt.date())
+    sunrise = s["sunrise"]
+    sunset = s["sunset"]
 
-    # Wetter
-    if temp <= 5:
-        risiko += 1
-    if wind >= 25:
-        risiko += 1
-    if precip >= 1:
-        risiko += 1
-
-    # Steigung/Gefälle
-    if abs(slope) > 4:
-        risiko += 1
-
-    # Fahrertyp (z. B. 'Profi', 'Amateur')
-    if fahrer_typ.lower() == "amateur":
-        risiko += 1
-
-    # Teilnehmerzahl
-    if teilnehmer > 80:
-        risiko += 1
-
-    # Nachtmodus (schlechte Sicht)
-    if nighttime:
-        risiko += 1
-
-    # Scharfe Kurve
-    if sharp_curve:
-        risiko += 1
-
-    # Rennart (Beispiel)
-    if rennen_art.lower() in ["kriterienrennen", "kriterium"]:
-        risiko += 1
-
-    # Straßenbelag (Kopfsteinpflaster, Schotter => höheres Risiko)
-    if street_surface in ["cobblestone", "gravel"]:
-        risiko += 1
-
-    # Deckeln bei 5
-    risiko = min(risiko, 5)
-    return risiko
-
-def needs_saniposten(risk_value, sharp_curve, street_surface):
-    """
-    Wann benötigen wir einen Sani-Posten?
-    Beispiel: risk >= 4 oder risk=3 + scharfe Kurve + schlechter Belag
-    """
-    if risk_value >= 4:
-        return True
-    if (risk_value == 3) and sharp_curve and (street_surface in ["cobblestone", "gravel"]):
-        return True
-    return False
+    return dt < sunrise or dt > sunset
 
 def segmentize(coordinates, segment_length_km=0.2):
     """
-    Teilt eine Liste von Koordinaten in ~0,2-km-Segmente auf.
-    Rückgabe: Liste von Segmenten (Liste von Punkten).
+    Teilt Koordinaten (lat,lon,elev) in ~0,2-km-Segmente auf.
     """
     segments = []
     segment = []
@@ -174,46 +138,143 @@ def segmentize(coordinates, segment_length_km=0.2):
             segment.append(point)
         prev_point = point
 
-    # Reste
     if segment:
         segments.append(segment)
 
     return segments
 
-def is_nighttime_at(dt, lat, lon):
+# ---------------------
+# Risikoberechnung
+# ---------------------
+def calc_risk(
+    temp, wind, precip, slope,
+    fahrer_typ,
+    teilnehmer,
+    nighttime=False,
+    sharp_curve=False,
+    rennen_art="unknown",
+    geschlecht="mixed",
+    street_surface="asphalt",
+    alter=35,
+    schutzausruestung=None,  # dict: {"helm": True, "protektoren": True, ...}
+    material="aluminium",
+    overuse_knee=False,
+    rueckenschmerzen=False,
+    massenstart=False
+):
     """
-    Bestimmt per astral, ob es zur angegebenen datetime (dt) an (lat, lon) Nacht ist.
+    Erweiterte Risikoformel, die möglichst viele Faktoren aus der Dissertation 
+    (und weiteren Studien) berücksichtigt.
+    
+    Skala: 1..10 (Beispiel)
     """
-    location = LocationInfo(
-        name="RaceLocation",
-        region="",
-        timezone="UTC",  # oder "Europe/Berlin", wenn du die lokale Zeitzone weißt
-        latitude=lat,
-        longitude=lon
-    )
-    s = sun(location.observer, date=dt.date())
-    sunrise = s["sunrise"]
-    sunset = s["sunset"]
+    if schutzausruestung is None:
+        schutzausruestung = {}
 
-    # Wenn dt vor sunrise oder nach sunset -> Nacht
-    if dt < sunrise or dt > sunset:
-        return True
-    return False
+    risiko = 1
+
+    # Wetter-Faktoren
+    if temp <= 5:
+        risiko += 1  # kalte Temp => steife Muskeln, Auskühlung
+    if wind >= 25:
+        risiko += 1
+    if precip >= 1:  # starker Regen
+        risiko += 1
+
+    # Steigung/Gefälle
+    if abs(slope) > 4:
+        risiko += 1
+
+    # Fahrertyp (Lizenzklasse, Hobby vs. Profi)
+    typ_lower = fahrer_typ.lower()
+    # Annahme: Hobby/C = +1, A/B = -1, Elite/Profi -> -1
+    if typ_lower in ["hobby", "c-lizenz", "anfänger"]:
+        risiko += 1
+    elif typ_lower in ["a", "b", "elite", "profi"]:
+        risiko -= 1
+
+    # Teilnehmerzahl
+    if teilnehmer > 80:
+        risiko += 1
+
+    # Massenstart => hohes Kollisionsrisiko
+    if massenstart:
+        risiko += 1
+
+    # Nachtmodus
+    if nighttime:
+        risiko += 1
+
+    # Scharfe Kurve
+    if sharp_curve:
+        risiko += 1
+
+    # Disziplin
+    # Downhill => +2, MTB => +1, Kriterien => +1, Straßenrennen => 0 ...
+    r = rennen_art.lower()
+    if r in ["downhill", "freeride"]:
+        risiko += 2
+    elif r in ["mtb", "mountainbike", "xc", "gelände"]:
+        risiko += 1
+    elif r in ["kriterienrennen", "criterium"]:
+        risiko += 1
+
+    # Geschlecht
+    if geschlecht.lower() in ["w", "frau", "female"]:
+        risiko += 1
+
+    # Alter
+    if alter >= 60:
+        risiko += 1
+
+    # Straßenbelag
+    if street_surface in ["cobblestone", "gravel"]:
+        risiko += 1
+
+    # Material (carbon vs. alu vs. stahl)
+    if material.lower() == "carbon":
+        risiko += 1
+
+    # Schutzkleidung
+    # z. B. helm => -1, protektoren => -1
+    if schutzausruestung.get("helm", False):
+        risiko -= 1
+    if schutzausruestung.get("protektoren", False):
+        risiko -= 1
+
+    # Overuse-Faktoren
+    # z. B. wer Knie- oder Rückenprobleme hat => +1
+    if overuse_knee:
+        risiko += 1
+    if rueckenschmerzen:
+        risiko += 1
+
+    # Deckeln (Skala 1..10)
+    if risiko < 1:
+        risiko = 1
+    if risiko > 10:
+        risiko = 10
+
+    return risiko
+
+def needs_saniposten(risk_value):
+    """
+    Beispiel: ab 7 => Sani empfohlen.
+    """
+    return risk_value >= 7
 
 
 # ---------------------------------------------------
-# Flask-Routen
+# FLASK-Routen
 # ---------------------------------------------------
-
 @app.route("/")
 def home():
-    return "Erweiterte CycleDoc Heatmap mit Straßenbelag + Tag/Nacht!"
+    return "CycleDoc Heatmap API – Dissertation-Faktoren (Erweiterte Version)!"
 
 @app.route("/parse-gpx", methods=["POST"])
 def parse_gpx():
     """
-    Liest eine GPX-Datei (Upload-Feld: 'file'), parse sie mit gpxpy,
-    und gibt die Koordinatenliste (lat,lon,elev) als JSON zurück.
+    Lädt die GPX-Datei und gibt Koordinaten zurück, falls gewünscht.
     """
     if "file" not in request.files:
         return jsonify({"error": "Keine Datei empfangen."}), 400
@@ -227,51 +288,71 @@ def parse_gpx():
                 coordinates.append([point.latitude, point.longitude, point.elevation])
     return jsonify({"coordinates": coordinates})
 
-@app.route("/advanced-heatmap", methods=["POST"])
-def advanced_heatmap():
+@app.route("/extended-heatmap", methods=["POST"])
+def extended_heatmap():
     """
-    Nimmt JSON-Input:
+    Hier wird die Heatmap erstellt.
+    
+    Erwartetes JSON-Beispiel:
     {
-      "coordinates": [...],
-      "fahrer_typ": "Amateur",
-      "anzahl": 100,
-      "geschlecht": "mixed",
-      "rennen_art": "Kriterienrennen",
-      "start_time": "2025-04-06T18:00:00Z",
-      "wetter_override": {...} (optional)
+      "coordinates": [[lat, lon, elev], ...],
+      "fahrer_typ": "C-Lizenz",
+      "anzahl": 120,
+      "rennen_art": "Downhill",
+      "geschlecht": "female",
+      "alter": 65,
+      "start_time": "2025-08-01T19:00:00Z",
+      "wetter_override": {
+        "temperature": 10,
+        "wind_speed": 20,
+        "precip": 0,
+        "condition": "Cloudy"
+      },
+      "material": "carbon",
+      "massenstart": true,
+      "overuse_knee": true,
+      "rueckenschmerzen": false,
+      "schutzausruestung": {
+        "helm": true,
+        "protektoren": false
+      }
     }
-    Segmentiert, berechnet Risiko, erstellt eine Folium-Karte, speichert sie
-    als HTML und gibt den Link + Segment-Infos zurück.
     """
     data = request.json
     coordinates = data.get("coordinates", [])
     if not coordinates or not isinstance(coordinates, list):
         return jsonify({"error": "Keine gültigen Koordinaten empfangen"}), 400
 
-    fahrer_typ = data.get("fahrer_typ", "Amateur")
-    teilnehmer = data.get("anzahl", 100)
-    geschlecht = data.get("geschlecht", "mixed")
+    # Parameter einsammeln
+    fahrer_typ = data.get("fahrer_typ", "hobby")
+    teilnehmer = data.get("anzahl", 50)
     rennen_art = data.get("rennen_art", "unknown")
+    geschlecht = data.get("geschlecht", "mixed")
+    alter = data.get("alter", 35)
     start_time_str = data.get("start_time", None)
-
     weather_override = data.get("wetter_override", {})
+    material = data.get("material", "aluminium")
+    massenstart = data.get("massenstart", False)
+    overuse_knee = data.get("overuse_knee", False)
+    rueckenschmerzen = data.get("rueckenschmerzen", False)
+    schutzausruestung = data.get("schutzausruestung", {})
 
-    # GPX in ~0.2-km-Segmente aufteilen
+    # Segmentierung
     segments = segmentize(coordinates, 0.2)
     if not segments:
         return jsonify({"error": "Keine Segmente gebildet"}), 400
 
-    # Tag/Nacht für Startpunkt bestimmen
+    # Tag/Nacht-Bestimmung
     first_seg_center = segments[0][len(segments[0]) // 2]
     lat_first, lon_first = first_seg_center[:2]
 
-    nighttime = False  # Default: Tag
+    nighttime = False
     if start_time_str:
         try:
             dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
             nighttime = is_nighttime_at(dt, lat_first, lon_first)
         except:
-            # Fallback -> nighttime bleibt False
+            # falls es scheitert, bleibt nighttime=False
             pass
 
     # Wetter-API
@@ -279,7 +360,6 @@ def advanced_heatmap():
     ws_base_url = "http://api.weatherstack.com/current"
 
     segment_infos = []
-
     for i, seg in enumerate(segments):
         center_idx = len(seg) // 2
         center = seg[center_idx]
@@ -289,21 +369,22 @@ def advanced_heatmap():
         sharp_curve = detect_sharp_curve(seg, threshold=60)
         street_surface = get_street_surface(lat, lon)
 
-        # Wetter
         if weather_override:
             weather = weather_override
         else:
+            # Externe Wetter-API
             try:
                 params = {"access_key": WEATHERSTACK_API_KEY, "query": f"{lat},{lon}"}
                 res = requests.get(ws_base_url, params=params, timeout=5)
-                w_current = res.json()["current"]
+                data_ws = res.json().get("current", {})
                 weather = {
-                    "temperature": w_current["temperature"],
-                    "wind_speed": w_current["wind_speed"],
-                    "precip": w_current["precip"],
-                    "condition": w_current["weather_descriptions"][0] if w_current["weather_descriptions"] else ""
+                    "temperature": data_ws.get("temperature", 15),
+                    "wind_speed": data_ws.get("wind_speed", 10),
+                    "precip": data_ws.get("precip", 0),
+                    "condition": data_ws.get("weather_descriptions", [""])[0]
                 }
             except:
+                # Fallback
                 weather = {
                     "temperature": 15,
                     "wind_speed": 10,
@@ -311,6 +392,7 @@ def advanced_heatmap():
                     "condition": "Sunny"
                 }
 
+        # Risiko
         risiko = calc_risk(
             temp=weather["temperature"],
             wind=weather["wind_speed"],
@@ -322,12 +404,18 @@ def advanced_heatmap():
             sharp_curve=sharp_curve,
             rennen_art=rennen_art,
             geschlecht=geschlecht,
-            street_surface=street_surface
+            street_surface=street_surface,
+            alter=alter,
+            schutzausruestung=schutzausruestung,
+            material=material,
+            overuse_knee=overuse_knee,
+            rueckenschmerzen=rueckenschmerzen,
+            massenstart=massenstart
         )
 
-        sani_needed = needs_saniposten(risiko, sharp_curve, street_surface)
+        sani_needed = needs_saniposten(risiko)
 
-        # Terrain grob kategorisieren
+        # Terrain klassifizieren
         if slope > 2:
             terrain = "Anstieg"
         elif slope < -2:
@@ -348,16 +436,22 @@ def advanced_heatmap():
             "sani_needed": sani_needed
         })
 
-    # Karte erzeugen
+    # Karte erstellen
     map_center = segment_infos[0]["center"]
     m = folium.Map(location=[map_center["lat"], map_center["lon"]], zoom_start=13)
 
+    # Farben 1..10
     risk_colors = {
-        1: "green",
-        2: "yellow",
-        3: "orange",
-        4: "red",
-        5: "darkred"
+        1:  "green",
+        2:  "lime",
+        3:  "yellow",
+        4:  "orange",
+        5:  "darkorange",
+        6:  "red",
+        7:  "darkred",
+        8:  "darkred",
+        9:  "darkred",
+        10: "black"
     }
 
     for seg_info, seg_points in zip(segment_infos, segments):
@@ -369,36 +463,28 @@ def advanced_heatmap():
             locations=latlon_segment,
             color=color,
             weight=5,
-            popup=(
-                f"Seg {seg_info['segment_index']}, "
-                f"Risk {risk}, "
-                f"Belag {seg_info['street_surface']}"
-            )
+            popup=f"Segment {seg_info['segment_index']}, Risk {risk}, Surface {seg_info['street_surface']}"
         ).add_to(m)
 
         if seg_info["sani_needed"]:
             folium.Marker(
                 location=[seg_info["center"]["lat"], seg_info["center"]["lon"]],
-                popup=(
-                    f"Sani empfohlen!\n"
-                    f"Risk: {seg_info['risk']}, "
-                    f"Belag: {seg_info['street_surface']}"
-                ),
+                popup=f"Sani empfohlen! Risk: {risk}",
                 icon=folium.Icon(icon="plus", prefix="fa", color="red")
             ).add_to(m)
 
-    # HTML speichern
+    # Karte speichern
     static_path = os.path.join(os.path.dirname(__file__), "static")
     if not os.path.exists(static_path):
         os.makedirs(static_path)
 
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    filename = f"advanced_heatmap_{timestamp}.html"
+    filename = f"extended_heatmap_{timestamp}.html"
     filepath = os.path.join(static_path, filename)
     m.save(filepath)
 
-    # Base-URL anpassen, falls nötig (z. B. http://localhost:5000)
-    base_url = "https://gpx-heatmap-api.onrender.com"
+    # Base-URL anpassen
+    base_url = "http://localhost:5000"  # oder deine Domain/Render-URL
 
     return jsonify({
         "heatmap_url": f"{base_url}/static/{filename}",
@@ -406,5 +492,5 @@ def advanced_heatmap():
     })
 
 if __name__ == "__main__":
-    # Startet den Server lokal auf Port 5000
+    # Lokaler Start
     app.run(debug=True, port=5000)
