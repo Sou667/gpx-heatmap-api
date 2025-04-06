@@ -1,16 +1,8 @@
 ##############################################################
-# main.py
+# main.py (mit Debug-Ausgaben für WeatherStack)
 #
-# Enthält:
-#  - /parse-gpx (GPX-Upload)
-#  - /extended-heatmap (Erstellung der Karte + Risikoanalyse)
-#  - /pdf-report (Erzeugt PDF mit Risiko, Verletzungen, Link zur Karte)
-#
-# Voraussetzungen:
-#  1) WEATHERSTACK_API_KEY in Env-Variable
-#  2) pip install -r requirements.txt (inkl. astral, weasyprint, etc.)
-#
-# Start: python main.py (lokal) oder gunicorn main:app
+# 1) fetch_weather() -> print() der URL, Lat/Lon, Statuscode, Res.text
+# 2) Sonst alles unverändert
 ##############################################################
 
 from flask import Flask, request, jsonify, send_file
@@ -23,26 +15,16 @@ import requests
 import gpxpy
 import gpxpy.gpx
 
-# Tag/Nacht:
 from astral import LocationInfo
 from astral.sun import sun
 
-# PDF mit WeasyPrint:
 from weasyprint import HTML
 import random
 import tempfile
 
 app = Flask(__name__)
 
-# ---------------------------------------------------
-# Hilfsfunktionen
-# ---------------------------------------------------
-
 def bearing(pointA, pointB):
-    """
-    Berechnet die Kursrichtung (Bearing) von pointA nach pointB.
-    Rückgabe: Grad 0..360
-    """
     lat1 = math.radians(pointA[0])
     lon1 = math.radians(pointA[1])
     lat2 = math.radians(pointB[0])
@@ -56,16 +38,10 @@ def bearing(pointA, pointB):
     return compass_bearing
 
 def angle_between(b1, b2):
-    """
-    Kleinste Winkel-Differenz zwischen zwei Bearing-Werten (0..360).
-    """
     diff = abs(b1 - b2)
     return min(diff, 360 - diff)
 
 def detect_sharp_curve(segment_points, threshold=60):
-    """
-    Prüft, ob im Segment eine 'scharfe Kurve' > threshold Grad existiert.
-    """
     if len(segment_points) < 3:
         return False
     for i in range(len(segment_points) - 2):
@@ -81,9 +57,6 @@ def detect_sharp_curve(segment_points, threshold=60):
     return False
 
 def calc_slope(points):
-    """
-    Steigungsberechnung in % aus Start- und Endpunkt.
-    """
     if len(points) < 2:
         return 0.0
     start = points[0]
@@ -96,17 +69,11 @@ def calc_slope(points):
     return round(slope, 1)
 
 def get_street_surface(lat, lon):
-    """
-    Demo-Funktion für Straßenbelag: wählt "asphalt", "gravel", "cobblestone" pseudozufällig.
-    """
     surfaces = ["asphalt", "cobblestone", "gravel", "asphalt", "asphalt", "gravel"]
     random.seed(int(abs(lat*1000) + abs(lon*1000)))
     return random.choice(surfaces)
 
 def is_nighttime_at(dt, lat, lon):
-    """
-    Check per astral, ob dt vor Sonnenaufgang oder nach Sonnenuntergang ist.
-    """
     location = LocationInfo(
         name="RaceLocation",
         region="",
@@ -120,9 +87,6 @@ def is_nighttime_at(dt, lat, lon):
     return dt < sunrise or dt > sunset
 
 def segmentize(coordinates, segment_length_km=0.2):
-    """
-    Unterteilt Koordinaten in ~0,2km-Segmente.
-    """
     segments = []
     segment = []
     segment_distance = 0.0
@@ -146,9 +110,6 @@ def segmentize(coordinates, segment_length_km=0.2):
 
     return segments
 
-# ---------------------------------------------------
-# Risiko-Funktion (Skala 1..5) + Saniposten
-# ---------------------------------------------------
 def calc_risk(
     temp, wind, precip, slope,
     fahrer_typ,
@@ -165,11 +126,6 @@ def calc_risk(
     rueckenschmerzen=False,
     massenstart=False
 ):
-    """
-    Skala 1..5
-      1 = sehr gering
-      5 = sehr hoch
-    """
     if schutzausruestung is None:
         schutzausruestung = {}
 
@@ -183,34 +139,27 @@ def calc_risk(
     if precip >= 1:
         risiko += 1
 
-    # Steigung
     if abs(slope) > 4:
         risiko += 1
 
-    # Fahrertyp
     typ_lower = fahrer_typ.lower()
     if typ_lower in ["hobby", "c-lizenz", "anfänger"]:
         risiko += 1
     elif typ_lower in ["a", "b", "elite", "profi"]:
         risiko -= 1
 
-    # Teilnehmer
     if teilnehmer > 80:
         risiko += 1
 
-    # Massenstart
     if massenstart:
         risiko += 1
 
-    # Nachtmodus
     if nighttime:
         risiko += 1
 
-    # Scharfe Kurve
     if sharp_curve:
         risiko += 1
 
-    # Disziplin
     r = rennen_art.lower()
     if r in ["downhill", "freeride"]:
         risiko += 2
@@ -219,35 +168,28 @@ def calc_risk(
     elif r in ["kriterienrennen", "criterium"]:
         risiko += 1
 
-    # Geschlecht
     if geschlecht.lower() in ["w", "frau", "female"]:
         risiko += 1
 
-    # Alter
     if alter >= 60:
         risiko += 1
 
-    # Straßenbelag
     if street_surface in ["cobblestone", "gravel"]:
         risiko += 1
 
-    # Material
     if material.lower() == "carbon":
         risiko += 1
 
-    # Schutzkleidung
     if schutzausruestung.get("helm", False):
         risiko -= 1
     if schutzausruestung.get("protektoren", False):
         risiko -= 1
 
-    # Overuse
     if overuse_knee:
         risiko += 1
     if rueckenschmerzen:
         risiko += 1
 
-    # Deckeln
     if risiko < 1:
         risiko = 1
     if risiko > 5:
@@ -256,48 +198,31 @@ def calc_risk(
     return risiko
 
 def needs_saniposten(risk_value):
-    """
-    Ab Risiko >=3 => Sani
-    """
     return risk_value >= 3
 
 def typical_injuries(risk, rennen_art):
-    """
-    Gibt eine Liste von Verletzungen, angelehnt an Dissertation & Quellen.
-    1..2 => leichte (Prellungen, Abschürfungen)
-    3..4 => + Clavicula, Handfraktur
-    5 => Wirbelsäule, Becken etc.
-    Wenn Downhill => vermehrt Wirbelsäule
-    """
     r = rennen_art.lower()
     if risk <= 2:
         return ["Abschürfungen", "Prellungen"]
     elif risk in [3, 4]:
-        # Clavicula & Hand
         inj = ["Abschürfungen", "Prellungen", "Claviculafraktur", "Handgelenksverletzung"]
         if r in ["downhill", "freeride"]:
             inj.append("Wirbelsäulenverletzung (selten, aber möglich)")
         return inj
     else:  # risk == 5
         inj = ["Abschürfungen", "Claviculafraktur", "Wirbelsäulenverletzung", "Beckenfraktur"]
-        # Downhill => extra betont
         if r in ["downhill", "freeride"]:
             inj.append("Schwere Rücken-/Organverletzungen")
         return inj
 
-# ---------------------------------------------------
-# Routen
-# ---------------------------------------------------
+app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Erweiterte CycleDoc Heatmap (Skala 1..5) mit PDF-Export!"
+    return "Erweiterte CycleDoc Heatmap (Skala 1..5) - DEBUG WeatherStack!"
 
 @app.route("/parse-gpx", methods=["POST"])
 def parse_gpx_route():
-    """
-    Lädt GPX-Datei => JSON mit Koordinaten
-    """
     if "file" not in request.files:
         return jsonify({"error": "Keine Datei empfangen."}), 400
 
@@ -312,23 +237,6 @@ def parse_gpx_route():
 
 @app.route("/extended-heatmap", methods=["POST"])
 def extended_heatmap():
-    """
-    Erwartet JSON:
-    {
-      "coordinates": [...],
-      "fahrer_typ": "...",
-      "anzahl": 120,
-      "rennen_art": "Downhill",
-      "geschlecht": "female",
-      "alter": 65,
-      "start_time": "2025-08-01T19:00:00Z",
-      "material": "carbon",
-      "massenstart": true,
-      "overuse_knee": true,
-      "rueckenschmerzen": false,
-      "schutzausruestung": {"helm": true, "protektoren": false}
-    }
-    """
     data = request.json
     coords = data.get("coordinates", [])
     if not coords:
@@ -351,26 +259,39 @@ def extended_heatmap():
     if not segments:
         return jsonify({"error": "Keine Segmente gebildet"}), 400
 
-    # Nachtcheck
-    first_seg_center = segments[0][len(segments[0]) // 2]
-    lat_first, lon_first = first_seg_center[:2]
     nighttime = False
     if start_time_str:
         try:
             dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-            nighttime = is_nighttime_at(dt, lat_first, lon_first)
+            nighttime = is_nighttime_at(dt, coords[0][0], coords[0][1])
         except:
             pass
 
-    # Wetter: WeatherStack als primär, manueller fallback
     WEATHERSTACK_API_KEY = os.environ.get("WEATHERSTACK_API_KEY", "")
-    ws_base_url = "http://api.weatherstack.com/current"
+    ws_base_url = "http://api.weatherstack.com/current"  # oder https:// - je nach Plan
+
+    # DEBUG: print statements to see if we have a KEY and URL
+    print("DEBUG: Using WeatherStack endpoint:", ws_base_url)
+    # (Beachte: KEY nicht ausgeben wenn du ihn nicht öffentlich machen willst)
 
     def fetch_weather(lat, lon):
-        # Versuchen WeatherStack
+        """
+        Fetch weather from WeatherStack, with debug prints for status code + response text.
+        """
         try:
-            params = {"access_key": WEATHERSTACK_API_KEY, "query": f"{lat},{lon}"}
+            # Debug
+            print(f"fetch_weather() called with lat={lat}, lon={lon}")
+            if not WEATHERSTACK_API_KEY:
+                print("DEBUG: No WEATHERSTACK_API_KEY found in environment!")
+            query_str = f"{lat},{lon}"
+            params = {"access_key": WEATHERSTACK_API_KEY, "query": query_str}
+            
+            print("DEBUG: Making request to WeatherStack with params:", params)
             res = requests.get(ws_base_url, params=params, timeout=5)
+
+            print("DEBUG: WeatherStack response status:", res.status_code)
+            print("DEBUG: WeatherStack response text:", res.text)
+
             data_ws = res.json()
             if "current" in data_ws:
                 c = data_ws["current"]
@@ -378,12 +299,13 @@ def extended_heatmap():
                     "temperature": c.get("temperature", 15),
                     "wind_speed": c.get("wind_speed", 10),
                     "precip": c.get("precip", 0),
-                    "condition": c.get("weather_descriptions", [""])[0]
+                    "condition": c.get("weather_descriptions", [""])[0] if c.get("weather_descriptions") else ""
                 }
             else:
-                # fallback: None => user can input manually or override
+                print("DEBUG: 'current' not in data_ws. Possibly an error from WeatherStack.")
                 return None
-        except:
+        except Exception as e:
+            print("DEBUG: Exception in fetch_weather:", e)
             return None
 
     segment_infos = []
@@ -396,13 +318,11 @@ def extended_heatmap():
         sharp_curve = detect_sharp_curve(seg, threshold=60)
         surface = get_street_surface(lat, lon)
 
-        # Falls override existiert, nimm das
         if weather_override:
             weather = weather_override
         else:
             w = fetch_weather(lat, lon)
             if w is None:
-                # => manuelle Eingabe?
                 weather = {
                     "temperature": 15,
                     "wind_speed": 10,
@@ -456,11 +376,9 @@ def extended_heatmap():
             "sani_needed": sani_needed
         })
 
-    # Karte
     map_center = segment_infos[0]["center"]
     m = folium.Map(location=[map_center["lat"], map_center["lon"]], zoom_start=13)
 
-    # Farbcodes 1..5
     risk_colors = {
         1: "green",
         2: "yellow",
@@ -498,8 +416,9 @@ def extended_heatmap():
     filepath = os.path.join(static_path, filename)
     m.save(filepath)
 
-    # BASE-URL anpassen
+    # URL anpassen
     base_url = "http://localhost:5000"
+    # If you are on Render => base_url = "https://gpx-heatmap-api.onrender.com"
 
     return jsonify({
         "heatmap_url": f"{base_url}/static/{filename}",
@@ -508,26 +427,12 @@ def extended_heatmap():
 
 @app.route("/pdf-report", methods=["POST"])
 def pdf_report():
-    """
-    Nimmt JSON mit 'segments', 'heatmap_url' etc. 
-    Erzeugt PDF via WeasyPrint, liefert als Download.
-    
-    Erwartet:
-    {
-      "title": "Mein PDF",
-      "summary": "Zusammenfassung...",
-      "segments": [...],
-      "heatmap_url": "http://...",
-      ...
-    }
-    """
     data = request.json
     title = data.get("title", "Radsport Report")
     summary = data.get("summary", "")
     segments = data.get("segments", [])
     heatmap_url = data.get("heatmap_url", "#")
 
-    # Ein einfaches HTML
     html_content = f"""
     <html>
     <head>
@@ -548,12 +453,18 @@ def pdf_report():
     """
 
     for seg in segments:
+        injuries_str = seg.get("injuries", [])
+        if isinstance(injuries_str, list):
+            injuries_str = ", ".join(injuries_str)
+        else:
+            injuries_str = str(injuries_str)
+        
         html_content += f"""
         <div class='seg-box'>
-          <h3>Segment {seg['segment_index']}</h3>
-          <p>Risk: <span class='risk'>{seg['risk']}</span></p>
-          <p>Injuries: {', '.join(seg['injuries'])}</p>
-          <p>Weather: {seg['weather']}</p>
+          <h3>Segment {seg.get('segment_index')}</h3>
+          <p>Risk: <span class='risk'>{seg.get('risk')}</span></p>
+          <p>Injuries: {injuries_str}</p>
+          <p>Weather: {seg.get('weather')}</p>
         </div>
         """
 
@@ -562,12 +473,10 @@ def pdf_report():
     </html>
     """
 
-    # WeasyPrint => PDF in tempfile
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmpfile:
         pdf_path = tmpfile.name
 
     HTML(string=html_content).write_pdf(pdf_path)
-
     return send_file(pdf_path, as_attachment=True, download_name="radsport_report.pdf")
 
 if __name__ == "__main__":
