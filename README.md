@@ -1,13 +1,22 @@
-# 🚴‍♂️ GPX Heatmap API – CycleDoc
+# CycleDoc Heatmap API
 
-Ein leistungsstarker Python-Server zur Analyse von Radsportstrecken auf Basis von `.gpx`-Dateien – inkl. **Heatmap**, **Risikoanalyse**, **Saniposten-Empfehlung**, **PDF-Export**, **Wetterintegration** & **automatischer Chunk-Verarbeitung**.
+Dies ist die offizielle Radsport-Risikoanalyse-API mit Heatmap-Rendering, Wetteranalyse und Chunk-Support.
+
+## Endpunkte
+
+### `/parse-gpx` (POST)
+Liest eine GPX-Datei und gibt die Koordinaten als JSON zurück.
+
+**Body:** `multipart/form-data` mit Key: `file`
 
 ---
 
-## 🔧 Installation
+### `/chunk-upload` (POST)
+Segmentiert eine große Koordinatenliste in serverseitige JSON-Chunks (Standard: 200 Punkte).
 
-```bash
-git clone https://github.com/Sou667/gpx-heatmap-api.git
-cd gpx-heatmap-api
-pip install -r requirements.txt
-python main.py
+**Body:**
+```json
+{
+  "coordinates": [[lat, lon, elev], ...],
+  "chunk_size": 200
+}
