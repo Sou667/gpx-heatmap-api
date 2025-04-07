@@ -1,22 +1,17 @@
-# CycleDoc Heatmap API
+# 🧭 GPX Heatmap API – CycleDoc Risk Analyzer
 
-Dies ist die offizielle Radsport-Risikoanalyse-API mit Heatmap-Rendering, Wetteranalyse und Chunk-Support.
+Diese Flask-API nimmt GPX-Daten entgegen, analysiert sie segmentweise auf Radsport-Risiken und erzeugt eine interaktive Heatmap mit Farbcodierung (grün–orange–rot) sowie Sanitäter-Warnpunkten.
 
-## Endpunkte
+## 🔧 Setup
 
-### `/parse-gpx` (POST)
-Liest eine GPX-Datei und gibt die Koordinaten als JSON zurück.
+### Voraussetzungen
+- Python 3.11+
+- `pip install -r requirements.txt`
+- Folgende Pakete müssen installiert sein:
+  - flask, requests, folium, geopy, gpxpy, astral, weasyprint, gunicorn
 
-**Body:** `multipart/form-data` mit Key: `file`
-
----
-
-### `/chunk-upload` (POST)
-Segmentiert eine große Koordinatenliste in serverseitige JSON-Chunks (Standard: 200 Punkte).
-
-**Body:**
-```json
-{
-  "coordinates": [[lat, lon, elev], ...],
-  "chunk_size": 200
-}
+### Starten des Servers
+```bash
+python main.py
+# oder über gunicorn
+gunicorn main:app
