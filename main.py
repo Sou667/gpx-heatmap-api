@@ -2,7 +2,7 @@
 # main.py
 # - Zeigt Track als farbige Heatmap basierend auf Risikoanalyse.
 # - Unterstützt Segmentierung, Wetterdaten, GPX-Parsing, PDF-Export.
-# - Endpunkte: /parse-gpx, /heatmap-with-weather, /chunk-upload
+# - Endpunkte: /parse-gpx, /heatmap-with-weather, /chunk-upload, /openapi.yaml
 ################################################################
 
 import os
@@ -69,8 +69,7 @@ def segmentize(coords, len_km=0.2):
     return out
 
 def calc_risk(temp, wind, precip, slope, typ, n, **opt):
-    def safe(val, default):
-        return default if val is None else val
+    def safe(val, default): return default if val is None else val
     r = 1 + int(temp <= 5) + int(wind >= 25) + int(precip >= 1) + int(abs(slope) > 4)
     r += int(typ.lower() in ["hobby", "c-lizenz", "anfänger"])
     r -= int(typ.lower() in ["a", "b", "elite", "profi"])
@@ -195,6 +194,10 @@ def heatmap():
         "heatmap_url": f"https://gpx-heatmap-api.onrender.com/static/{filename}",
         "segments": seg_infos
     })
+
+@app.route("/openapi.yaml")
+def serve_openapi():
+    return send_file("openapi.yaml", mimetype="text/yaml")
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
