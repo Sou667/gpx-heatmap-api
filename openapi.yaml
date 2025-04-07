@@ -1,0 +1,155 @@
+openapi: 3.0.0
+info:
+  title: CycleDoc GPX Heatmap API
+  description: API zur Risikoanalyse und Heatmap-Erstellung für GPX-Strecken im Radsport
+  version: 1.0.0
+servers:
+  - url: https://gpx-heatmap-api.onrender.com
+paths:
+  /parse-gpx:
+    post:
+      summary: GPX-Datei analysieren
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Extrahierte Koordinaten
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  coordinates:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: number
+
+  /chunk-upload:
+    post:
+      summary: Große Koordinatenmengen in Chunks aufteilen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                coordinates:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: number
+                chunk_size:
+                  type: integer
+                  default: 200
+      responses:
+        '200':
+          description: Liste gespeicherter Chunk-Dateien
+
+  /heatmap-with-weather:
+    post:
+      summary: Risikoanalyse & Heatmap generieren
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                coordinates:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: number
+                fahrer_typ:
+                  type: string
+                anzahl:
+                  type: integer
+                geschlecht:
+                  type: string
+                alter:
+                  type: integer
+                rennen_art:
+                  type: string
+                start_time:
+                  type: string
+                  format: date-time
+                massenstart:
+                  type: boolean
+                material:
+                  type: string
+                overuse_knee:
+                  type: boolean
+                rueckenschmerzen:
+                  type: boolean
+                schutzausruestung:
+                  type: object
+                  properties:
+                    helm:
+                      type: boolean
+                    protektoren:
+                      type: boolean
+                wetter_override:
+                  type: object
+                  properties:
+                    temperature:
+                      type: number
+                    wind_speed:
+                      type: number
+                    precip:
+                      type: number
+                    condition:
+                      type: string
+      responses:
+        '200':
+          description: Analyseergebnisse & Karte
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  heatmap_url:
+                    type: string
+                    example: https://gpx-heatmap-api.onrender.com/static/heatmap_20250407103654.html
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        segment_index:
+                          type: integer
+                        center:
+                          type: object
+                          properties:
+                            lat:
+                              type: number
+                            lon:
+                              type: number
+                        slope:
+                          type: number
+                        sharp_curve:
+                          type: boolean
+                        terrain:
+                          type: string
+                        street_surface:
+                          type: string
+                        risk:
+                          type: integer
+                        injuries:
+                          type: array
+                          items:
+                            type: string
+                        sani_needed:
+                          type: boolean
