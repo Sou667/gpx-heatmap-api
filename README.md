@@ -58,3 +58,23 @@ API-Dokumentation via `openapi.yaml`:
 ```bash
 pip install -r requirements.txt
 python main.py
+---
+
+## 🧠 GPT-Aktion (Advanced Data Action)
+
+Die API ist kompatibel mit ChatGPT (Custom GPTs / Data Actions).
+
+**OpenAPI-Link:**  
+→ https://gpx-heatmap-api.onrender.com/openapi.yaml
+
+**Beispiel-Prompt:**
+
+> „Bitte analysiere unsere Tour mit dieser GPX-Datei. Zwei Hobbyfahrer, 65 Jahre alt, Start: Freitag 12 Uhr.“
+
+Der GPT-Client nutzt automatisch:
+- `/chunk-upload` mit 200er Blöcken
+- `/heatmap-with-weather` für jeden Chunk
+- gibt `heatmap_url`, `segments`, Risiken & Verletzungen zurück
+
+**Hinweis:** Fehlerstatus `500` wird erkannt – GPT fragt dann nach manuellen Wetterdaten.
+
