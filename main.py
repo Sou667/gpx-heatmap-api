@@ -4,6 +4,7 @@
 # - Farbschema: 1-2 (grün), 3 (orange), 4-5 (rot).
 # - Popup für Sani: Kontext wie "Scharfe Kurve".
 # - Endpunkte: /parse-gpx, /heatmap-with-weather, /chunk-upload
+# - Fixes: heatmap_url, auto-delete Chunks, Logging
 ################################################################
 
 import os
@@ -11,6 +12,7 @@ import json
 import math
 import random
 import tempfile
+import glob
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 import gpxpy
@@ -23,6 +25,7 @@ from weasyprint import HTML
 
 app = Flask(__name__)
 os.makedirs("chunks", exist_ok=True)
+os.makedirs("static", exist_ok=True)
 
 # --- Hilfsfunktionen ---
 
@@ -114,6 +117,7 @@ def heatmap():
     if not coords: return jsonify({"error": "Keine Koordinaten"}), 400
     segs = segmentize(coords, 0.2)
     if not segs: return jsonify({"error": "Keine Segmente gebildet"}), 400
+
     try:
         dt = datetime.fromisoformat(d.get("start_time", "").replace("Z", "+00:00"))
         night = is_nighttime_at(dt, coords[0][0], coords[0][1])
@@ -126,6 +130,7 @@ def heatmap():
         curve = detect_sharp_curve(s)
         surf = get_street_surface(lat, lon)
         weather = d.get("wetter_override", {}) or {"temperature": 15, "wind_speed": 10, "precip": 0, "condition": "Unbekannt"}
+
         risk = calc_risk(weather["temperature"], weather["wind_speed"], weather["precip"], slope,
                          d.get("fahrer_typ", "hobby"), d.get("anzahl", 50),
                          nighttime=night, sharp_curve=curve, rennen_art=d.get("rennen_art", ""),
@@ -133,6 +138,7 @@ def heatmap():
                          schutzausruestung=d.get("schutzausruestung", {}), material=d.get("material", "aluminium"),
                          overuse_knee=d.get("overuse_knee"), rueckenschmerzen=d.get("rueckenschmerzen"),
                          massenstart=d.get("massenstart"))
+
         injuries = typical_injuries(risk, d.get("rennen_art", ""))
         terrain = "Anstieg" if slope > 2 else "Abfahrt" if slope < -2 else "Flach"
         seg_infos.append({"segment_index": i+1, "center": {"lat": lat, "lon": lon}, "slope": slope,
@@ -151,10 +157,15 @@ def heatmap():
             folium.Marker([info["center"]["lat"], info["center"]["lon"]],
                           popup=txt, icon=folium.Icon(color="red", icon="plus", prefix="fa")).add_to(m)
     if all_locs: m.fit_bounds(all_locs)
-    out_path = os.path.join("static", f"heatmap_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html")
-    os.makedirs("static", exist_ok=True)
+    filename = f"heatmap_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html"
+    out_path = os.path.join("static", filename)
     m.save(out_path)
-    return jsonify({"heatmap_url": f"https://gpx-heatmap-api.onrender.com/{out_path}", "segments": seg_infos})
+
+    # Auto-delete all chunks
+    for f in glob.glob("chunks/chunk_*.json"):
+        os.remove(f)
+
+    return jsonify({"heatmap_url": f"https://gpx-heatmap-api.onrender.com/static/{filename}", "segments": seg_infos})
 
 @app.route("/chunk-upload", methods=["POST"])
 def chunk_upload():
@@ -169,3 +180,6 @@ def chunk_upload():
             json.dump({"coordinates": coords[i*size:(i+1)*size]}, f)
         files.append(path)
     return jsonify({"message": f"{len(files)} Chunks gespeichert", "chunks": files})
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
