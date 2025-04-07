@@ -5,6 +5,7 @@
 # - Popup für Sani: Kontext wie "Scharfe Kurve".
 # - Endpunkte: /parse-gpx, /heatmap-with-weather, /chunk-upload
 # - Fixes: heatmap_url, auto-delete Chunks, Logging
+# - NEU: Null-Schutz in calc_risk() (massenstart / nighttime)
 ################################################################
 
 import os
@@ -77,13 +78,16 @@ def calc_risk(temp, wind, precip, slope, typ, n, **opt):
     r = 1 + int(temp <= 5) + int(wind >= 25) + int(precip >= 1) + int(abs(slope) > 4)
     r += int(typ.lower() in ["hobby", "c-lizenz", "anfänger"])
     r -= int(typ.lower() in ["a", "b", "elite", "profi"])
-    r += int(n > 80) + int(opt.get("massenstart")) + int(opt.get("nighttime"))
+    r += int(n > 80)
+    r += int(opt.get("massenstart") or False)
+    r += int(opt.get("nighttime") or False)
     r += int(opt.get("sharp_curve")) + int(opt.get("geschlecht", "").lower() in ["w", "frau", "female"])
     r += int(opt.get("alter", 0) >= 60) + int(opt.get("street_surface") in ["gravel", "cobblestone"])
     r += int(opt.get("material", "") == "carbon")
     r -= int(opt.get("schutzausruestung", {}).get("helm", False))
     r -= int(opt.get("schutzausruestung", {}).get("protektoren", False))
-    r += int(opt.get("overuse_knee")) + int(opt.get("rueckenschmerzen"))
+    r += int(opt.get("overuse_knee") or False)
+    r += int(opt.get("rueckenschmerzen") or False)
     if opt.get("rennen_art", "").lower() in ["downhill", "freeride"]: r += 2
     return max(1, min(r, 5))
 
@@ -161,7 +165,6 @@ def heatmap():
     out_path = os.path.join("static", filename)
     m.save(out_path)
 
-    # Auto-delete all chunks
     for f in glob.glob("chunks/chunk_*.json"):
         os.remove(f)
 
