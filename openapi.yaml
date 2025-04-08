@@ -1,19 +1,19 @@
-openapi: 3.0.0
+openapi: 3.1.0
 info:
   title: CycleDoc GPX Heatmap API
   version: "1.0"
-  description: |
+  description: >
     Diese API verarbeitet GPX-Daten und erstellt Risiko-Heatmaps auf Basis von Wetter, Streckenprofil und wissenschaftlicher Studienlage.
-    Sie unterstützt das Parsen von GPX-Dateien, Segmentierung großer Strecken und die automatische Analyse via Wetterdaten oder manuelle Eingabe.
+    Unterstützt: Datei-Upload, Chunking, Segmentanalyse, Heatmap mit Risikobewertung und Streckenlänge.
 
 servers:
   - url: https://gpx-heatmap-api.onrender.com
 
 paths:
-
   /parse-gpx:
     post:
-      summary: GPX-Datei parsen (liefert auch Streckenlänge)
+      summary: GPX-Datei hochladen und in Koordinaten umwandeln
+      operationId: parseGpx
       requestBody:
         required: true
         content:
@@ -26,7 +26,7 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Extrahierte Koordinaten und Streckenlänge
+          description: Koordinaten erfolgreich extrahiert
           content:
             application/json:
               schema:
@@ -40,13 +40,14 @@ paths:
                         type: number
                   distance_km:
                     type: number
-                    description: Gesamtlänge der Strecke in Kilometern
+                    description: Gesamtlänge der Tour in Kilometern
         '400':
           description: Keine Datei empfangen
 
   /chunk-upload:
     post:
-      summary: GPX-Koordinaten in Chunks speichern (serverseitig)
+      summary: Zerlege viele Koordinaten in serverseitige Chunks
+      operationId: chunkUpload
       requestBody:
         required: true
         content:
@@ -58,29 +59,27 @@ paths:
                   type: array
                   items:
                     type: array
-                    items:
-                      type: number
+                    items: { type: number }
                 chunk_size:
                   type: integer
                   default: 200
       responses:
         '200':
-          description: Anzahl der gespeicherten Chunks
+          description: Chunks gespeichert
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message:
-                    type: string
+                  message: { type: string }
                   chunks:
                     type: array
-                    items:
-                      type: string
+                    items: { type: string }
 
   /heatmap-with-weather:
     post:
-      summary: Risikoanalyse & Heatmap generieren (Standard)
+      summary: Standard-Risikoanalyse mit 0.2 km Segmenten
+      operationId: generateHeatmap
       requestBody:
         required: true
         content:
@@ -89,20 +88,16 @@ paths:
               $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
-          description: Analyse mit Heatmap-Link und Risikosegmenten
+          description: Heatmap mit Risikoanalyse
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HeatmapResponse'
-        '400':
-          description: Fehlerhafte oder fehlende Daten
 
   /heatmap-quick:
     post:
-      summary: Präzise Risikoanalyse mit hoher Segmentdichte (SpeedBoost-Modus)
-      description: >
-        Funktioniert wie `/heatmap-with-weather`, nutzt aber eine deutlich feinere Segmentlänge (0.005 km).
-        Liefert zusätzlich die gesamte Streckenlänge in Kilometern zurück.
+      summary: Präzise Risikoanalyse (SpeedBoost, 0.005 km)
+      operationId: generateHeatmapQuick
       requestBody:
         required: true
         content:
@@ -111,11 +106,21 @@ paths:
               $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
-          description: Präzise Risikoanalyse mit zusätzlicher Streckenlänge (km)
+          description: Risikoanalyse mit Heatmap und Streckenlänge
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HeatmapResponseWithDistance'
+                type: object
+                properties:
+                  heatmap_url:
+                    type: string
+                  distance_km:
+                    type: number
+                    description: Gesamtlänge der Strecke (in Kilometern)
+                  segments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Segment'
 
 components:
   schemas:
@@ -127,102 +132,69 @@ components:
           type: array
           items:
             type: array
-            items:
-              type: number
+            items: { type: number }
         fahrer_typ:
           type: string
           example: hobby
         anzahl:
           type: integer
           example: 2
-        alter:
-          type: integer
+        rennen_art:
+          type: string
+          example: tour
         geschlecht:
           type: string
           example: mixed
+        alter:
+          type: integer
+          example: 65
+        material:
+          type: string
+          example: aluminium
         massenstart:
           type: boolean
         overuse_knee:
           type: boolean
         rueckenschmerzen:
           type: boolean
-        material:
-          type: string
-          example: aluminium
-        rennen_art:
-          type: string
-          example: road
-        schutzausruestung:
-          type: object
-          properties:
-            helm:
-              type: boolean
-            protektoren:
-              type: boolean
-        wetter_override:
-          type: object
-          properties:
-            temperature:
-              type: number
-            wind_speed:
-              type: number
-            precip:
-              type: number
-            condition:
-              type: string
         start_time:
           type: string
           format: date-time
-
-    HeatmapResponse:
-      type: object
-      properties:
-        heatmap_url:
-          type: string
-        segments:
-          type: array
-          items:
-            $ref: '#/components/schemas/SegmentInfo'
-
-    HeatmapResponseWithDistance:
-      allOf:
-        - $ref: '#/components/schemas/HeatmapResponse'
-        - type: object
+        wetter_override:
+          type: object
           properties:
-            distance_km:
-              type: number
-              description: Gesamtlänge der Strecke
+            temperature: { type: number }
+            wind_speed: { type: number }
+            precip: { type: number }
+            condition: { type: string }
+        schutzausruestung:
+          type: object
+          properties:
+            helm: { type: boolean }
+            protektoren: { type: boolean }
 
-    SegmentInfo:
+    Segment:
       type: object
       properties:
-        segment_index:
-          type: integer
+        segment_index: { type: integer }
         center:
           type: object
           properties:
-            lat:
-              type: number
-            lon:
-              type: number
-        slope:
-          type: number
-        sharp_curve:
-          type: boolean
-        terrain:
-          type: string
-        street_surface:
-          type: string
-        nighttime:
-          type: boolean
+            lat: { type: number }
+            lon: { type: number }
+        slope: { type: number }
+        sharp_curve: { type: boolean }
+        terrain: { type: string }
+        street_surface: { type: string }
+        nighttime: { type: boolean }
         risk:
           type: integer
+          minimum: 1
+          maximum: 5
         injuries:
           type: array
-          items:
-            type: string
-        sani_needed:
-          type: boolean
+          items: { type: string }
+        sani_needed: { type: boolean }
         weather:
           type: object
           properties:
