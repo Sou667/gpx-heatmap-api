@@ -1,10 +1,11 @@
-openapi: 3.0.3
+openapi: 3.0.0
 info:
   title: CycleDoc GPX Heatmap API
   version: "1.0"
   description: >
-    Diese API verarbeitet GPX-Daten und erstellt Risiko-Heatmaps auf Basis von Wetter, Streckenprofil und wissenschaftlicher Studienlage.
-    Unterstützt: Datei-Upload, Chunking, Segmentanalyse, Heatmap mit Risikobewertung und Streckenlänge.
+    Diese API verarbeitet GPX-Daten und erstellt Risiko-Heatmaps auf Basis von Wetter, Streckenprofil
+    und wissenschaftlicher Studienlage. Unterstützt Datei-Upload, Chunking, Segmentanalyse und
+    interaktive Karten mit Risikoeinschätzung.
 
 servers:
   - url: https://gpx-heatmap-api.onrender.com
@@ -12,7 +13,7 @@ servers:
 paths:
   /parse-gpx:
     post:
-      summary: GPX-Datei hochladen und in Koordinaten umwandeln
+      summary: GPX-Datei hochladen und Koordinaten extrahieren
       operationId: parseGpx
       requestBody:
         required: true
@@ -26,7 +27,7 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Koordinaten erfolgreich extrahiert
+          description: Extrahierte GPS-Koordinaten
           content:
             application/json:
               schema:
@@ -40,13 +41,12 @@ paths:
                         type: number
                   distance_km:
                     type: number
-                    description: Gesamtlänge der Tour in Kilometern
         '400':
           description: Keine Datei empfangen
 
   /chunk-upload:
     post:
-      summary: Zerlege viele Koordinaten in serverseitige Chunks
+      summary: Koordinaten in serverseitige Chunks aufteilen
       operationId: chunkUpload
       requestBody:
         required: true
@@ -59,26 +59,31 @@ paths:
                   type: array
                   items:
                     type: array
-                    items: { type: number }
+                    items:
+                      type: number
                 chunk_size:
                   type: integer
                   default: 200
       responses:
         '200':
-          description: Chunks gespeichert
+          description: Chunks erfolgreich gespeichert
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message: { type: string }
+                  message:
+                    type: string
                   chunks:
                     type: array
-                    items: { type: string }
+                    items:
+                      type: string
+        '400':
+          description: Keine Koordinaten empfangen
 
   /heatmap-with-weather:
     post:
-      summary: Standard-Risikoanalyse mit 0.2 km Segmenten
+      summary: Standard-Risikoanalyse & Heatmap (0.2 km Segmentlänge)
       operationId: generateHeatmap
       requestBody:
         required: true
@@ -88,15 +93,17 @@ paths:
               $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
-          description: Heatmap mit Risikoanalyse
+          description: Analyse mit Heatmap-Link
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HeatmapResponse'
+        '400':
+          description: Fehlerhafte oder fehlende Daten
 
   /heatmap-quick:
     post:
-      summary: Präzise Risikoanalyse (SpeedBoost, 0.005 km)
+      summary: Präzise Risikoanalyse (SpeedBoost – 0.005 km Segmente)
       operationId: generateHeatmapQuick
       requestBody:
         required: true
@@ -106,15 +113,22 @@ paths:
               $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
-          description: Risikoanalyse mit Heatmap und Streckenlänge
+          description: Heatmap & Risikoanalyse mit Streckenlänge
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HeatmapResponse'
+                allOf:
+                  - $ref: '#/components/schemas/HeatmapResponse'
+                  - type: object
+                    properties:
+                      distance_km:
+                        type: number
+                        description: Gesamtlänge der Strecke in Kilometern
+        '400':
+          description: Fehlerhafte oder fehlende Daten
 
 components:
   schemas:
-
     HeatmapRequest:
       type: object
       properties:
@@ -122,13 +136,14 @@ components:
           type: array
           items:
             type: array
-            items: { type: number }
+            items:
+              type: number
         fahrer_typ:
           type: string
           example: hobby
         anzahl:
           type: integer
-          example: 2
+          example: 5
         alter:
           type: integer
         geschlecht:
@@ -146,21 +161,27 @@ components:
         rennen_art:
           type: string
           example: road
-        schutzausruestung:
-          type: object
-          properties:
-            helm: { type: boolean }
-            protektoren: { type: boolean }
-        wetter_override:
-          type: object
-          properties:
-            temperature: { type: number }
-            wind_speed: { type: number }
-            precip: { type: number }
-            condition: { type: string }
         start_time:
           type: string
           format: date-time
+        wetter_override:
+          type: object
+          properties:
+            temperature:
+              type: number
+            wind_speed:
+              type: number
+            precip:
+              type: number
+            condition:
+              type: string
+        schutzausruestung:
+          type: object
+          properties:
+            helm:
+              type: boolean
+            protektoren:
+              type: boolean
 
     HeatmapResponse:
       type: object
@@ -168,40 +189,39 @@ components:
         heatmap_url:
           type: string
           format: uri
-        distance_km:
-          type: number
-          description: Gesamtlänge der Strecke in Kilometern
         segments:
           type: array
           items:
-            $ref: '#/components/schemas/Segment'
-
-    Segment:
-      type: object
-      properties:
-        segment_index: { type: integer }
-        center:
-          type: object
-          properties:
-            lat: { type: number }
-            lon: { type: number }
-        slope: { type: number }
-        sharp_curve: { type: boolean }
-        terrain: { type: string }
-        street_surface: { type: string }
-        nighttime: { type: boolean }
-        risk:
-          type: integer
-          minimum: 1
-          maximum: 5
-        injuries:
-          type: array
-          items: { type: string }
-        sani_needed: { type: boolean }
-        weather:
-          type: object
-          properties:
-            temperature: { type: number }
-            wind_speed: { type: number }
-            precip: { type: number }
-            condition: { type: string }
+            type: object
+            properties:
+              segment_index:
+                type: integer
+              center:
+                type: object
+                properties:
+                  lat: { type: number }
+                  lon: { type: number }
+              slope:
+                type: number
+              sharp_curve:
+                type: boolean
+              terrain:
+                type: string
+              weather:
+                type: object
+                properties:
+                  temperature: { type: number }
+                  wind_speed: { type: number }
+                  precip: { type: number }
+                  condition: { type: string }
+              street_surface:
+                type: string
+              nighttime:
+                type: boolean
+              risk:
+                type: integer
+              injuries:
+                type: array
+                items: { type: string }
+              sani_needed:
+                type: boolean
