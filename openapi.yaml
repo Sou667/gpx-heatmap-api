@@ -1,14 +1,18 @@
 openapi: 3.0.0
 info:
   title: CycleDoc GPX Heatmap API
-  description: API zur Risikoanalyse und Heatmap-Erstellung für GPX-Strecken im Radsport
-  version: 1.0.0
+  version: "1.0"
+  description: |
+    Diese API verarbeitet GPX-Daten und erstellt Risiko-Heatmaps auf Basis von Wetter, Streckenprofil und wissenschaftlicher Studienlage.
+    Sie unterstützt das Parsen von GPX-Dateien, Segmentierung großer Strecken und die automatische Analyse via Wetterdaten oder manuelle Eingabe.
+
 servers:
   - url: https://gpx-heatmap-api.onrender.com
+
 paths:
   /parse-gpx:
     post:
-      summary: GPX-Datei analysieren
+      summary: GPX-Datei parsen
       requestBody:
         required: true
         content:
@@ -21,7 +25,7 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Extrahierte Koordinaten
+          description: Extrahierte Koordinaten aus der Datei
           content:
             application/json:
               schema:
@@ -33,10 +37,12 @@ paths:
                       type: array
                       items:
                         type: number
+        '400':
+          description: Keine Datei empfangen
 
   /chunk-upload:
     post:
-      summary: Große Koordinatenmengen in Chunks aufteilen
+      summary: GPX-Koordinaten in Chunks speichern (serverseitig)
       requestBody:
         required: true
         content:
@@ -55,7 +61,18 @@ paths:
                   default: 200
       responses:
         '200':
-          description: Liste gespeicherter Chunk-Dateien
+          description: Anzahl der gespeicherten Chunks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  chunks:
+                    type: array
+                    items:
+                      type: string
 
   /heatmap-with-weather:
     post:
@@ -75,25 +92,42 @@ paths:
                       type: number
                 fahrer_typ:
                   type: string
+                  example: hobby
                 anzahl:
                   type: integer
-                geschlecht:
-                  type: string
-                alter:
-                  type: integer
+                  example: 2
                 rennen_art:
                   type: string
+                  example: tour
+                geschlecht:
+                  type: string
+                  example: mixed
+                alter:
+                  type: integer
+                  example: 65
+                material:
+                  type: string
+                  example: aluminium
+                massenstart:
+                  type: boolean
+                  example: false
+                overuse_knee:
+                  type: boolean
+                  example: false
+                rueckenschmerzen:
+                  type: boolean
+                  example: false
                 start_time:
                   type: string
                   format: date-time
-                massenstart:
-                  type: boolean
-                material:
-                  type: string
-                overuse_knee:
-                  type: boolean
-                rueckenschmerzen:
-                  type: boolean
+                  example: "2025-04-11T12:00:00Z"
+                wetter_override:
+                  type: object
+                  example:
+                    temperature: 15
+                    wind_speed: 10
+                    precip: 0
+                    condition: Klar
                 schutzausruestung:
                   type: object
                   properties:
@@ -101,20 +135,9 @@ paths:
                       type: boolean
                     protektoren:
                       type: boolean
-                wetter_override:
-                  type: object
-                  properties:
-                    temperature:
-                      type: number
-                    wind_speed:
-                      type: number
-                    precip:
-                      type: number
-                    condition:
-                      type: string
       responses:
         '200':
-          description: Analyseergebnisse & Karte
+          description: Analyse mit Heatmap-Link und Risikosegmenten
           content:
             application/json:
               schema:
@@ -122,7 +145,6 @@ paths:
                 properties:
                   heatmap_url:
                     type: string
-                    example: https://gpx-heatmap-api.onrender.com/static/heatmap_20250407103654.html
                   segments:
                     type: array
                     items:
@@ -143,8 +165,12 @@ paths:
                           type: boolean
                         terrain:
                           type: string
+                        weather:
+                          type: object
                         street_surface:
                           type: string
+                        nighttime:
+                          type: boolean
                         risk:
                           type: integer
                         injuries:
@@ -153,3 +179,5 @@ paths:
                             type: string
                         sani_needed:
                           type: boolean
+        '400':
+          description: Fehlerhafte oder fehlende Daten
