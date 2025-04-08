@@ -10,9 +10,10 @@ servers:
   - url: https://gpx-heatmap-api.onrender.com
 
 paths:
+
   /parse-gpx:
     post:
-      summary: GPX-Datei parsen
+      summary: GPX-Datei parsen (liefert auch Streckenlänge)
       requestBody:
         required: true
         content:
@@ -25,7 +26,7 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Extrahierte Koordinaten aus der Datei
+          description: Extrahierte Koordinaten und Streckenlänge
           content:
             application/json:
               schema:
@@ -37,6 +38,9 @@ paths:
                       type: array
                       items:
                         type: number
+                  distance_km:
+                    type: number
+                    description: Gesamtlänge der Strecke in Kilometern
         '400':
           description: Keine Datei empfangen
 
@@ -76,109 +80,20 @@ paths:
 
   /heatmap-with-weather:
     post:
-      summary: Risikoanalyse & Heatmap generieren
+      summary: Risikoanalyse & Heatmap generieren (Standard)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                coordinates:
-                  type: array
-                  items:
-                    type: array
-                    items:
-                      type: number
-                fahrer_typ:
-                  type: string
-                  example: hobby
-                anzahl:
-                  type: integer
-                  example: 2
-                rennen_art:
-                  type: string
-                  example: tour
-                geschlecht:
-                  type: string
-                  example: mixed
-                alter:
-                  type: integer
-                  example: 65
-                material:
-                  type: string
-                  example: aluminium
-                massenstart:
-                  type: boolean
-                  example: false
-                overuse_knee:
-                  type: boolean
-                  example: false
-                rueckenschmerzen:
-                  type: boolean
-                  example: false
-                start_time:
-                  type: string
-                  format: date-time
-                  example: "2025-04-11T12:00:00Z"
-                wetter_override:
-                  type: object
-                  example:
-                    temperature: 15
-                    wind_speed: 10
-                    precip: 0
-                    condition: Klar
-                schutzausruestung:
-                  type: object
-                  properties:
-                    helm:
-                      type: boolean
-                    protektoren:
-                      type: boolean
+              $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
           description: Analyse mit Heatmap-Link und Risikosegmenten
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  heatmap_url:
-                    type: string
-                  segments:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        segment_index:
-                          type: integer
-                        center:
-                          type: object
-                          properties:
-                            lat:
-                              type: number
-                            lon:
-                              type: number
-                        slope:
-                          type: number
-                        sharp_curve:
-                          type: boolean
-                        terrain:
-                          type: string
-                        weather:
-                          type: object
-                        street_surface:
-                          type: string
-                        nighttime:
-                          type: boolean
-                        risk:
-                          type: integer
-                        injuries:
-                          type: array
-                          items:
-                            type: string
-                        sani_needed:
-                          type: boolean
+                $ref: '#/components/schemas/HeatmapResponse'
         '400':
           description: Fehlerhafte oder fehlende Daten
 
@@ -193,103 +108,125 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                coordinates:
-                  type: array
-                  items:
-                    type: array
-                    items:
-                      type: number
-                fahrer_typ:
-                  type: string
-                  example: hobby
-                anzahl:
-                  type: integer
-                  example: 2
-                rennen_art:
-                  type: string
-                  example: tour
-                geschlecht:
-                  type: string
-                  example: mixed
-                alter:
-                  type: integer
-                  example: 65
-                material:
-                  type: string
-                  example: aluminium
-                massenstart:
-                  type: boolean
-                  example: false
-                overuse_knee:
-                  type: boolean
-                  example: false
-                rueckenschmerzen:
-                  type: boolean
-                  example: false
-                start_time:
-                  type: string
-                  format: date-time
-                  example: "2025-04-11T12:00:00Z"
-                wetter_override:
-                  type: object
-                  example:
-                    temperature: 15
-                    wind_speed: 10
-                    precip: 0
-                    condition: Klar
-                schutzausruestung:
-                  type: object
-                  properties:
-                    helm:
-                      type: boolean
-                    protektoren:
-                      type: boolean
+              $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
           description: Präzise Risikoanalyse mit zusätzlicher Streckenlänge (km)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  heatmap_url:
-                    type: string
-                  distance_km:
-                    type: number
-                    description: Gesamtlänge der Strecke in Kilometern
-                  segments:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        segment_index:
-                          type: integer
-                        center:
-                          type: object
-                          properties:
-                            lat:
-                              type: number
-                            lon:
-                              type: number
-                        slope:
-                          type: number
-                        sharp_curve:
-                          type: boolean
-                        terrain:
-                          type: string
-                        weather:
-                          type: object
-                        street_surface:
-                          type: string
-                        nighttime:
-                          type: boolean
-                        risk:
-                          type: integer
-                        injuries:
-                          type: array
-                          items:
-                            type: string
-                        sani_needed:
-                          type: boolean
+                $ref: '#/components/schemas/HeatmapResponseWithDistance'
+
+components:
+  schemas:
+
+    HeatmapRequest:
+      type: object
+      properties:
+        coordinates:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+        fahrer_typ:
+          type: string
+          example: hobby
+        anzahl:
+          type: integer
+          example: 2
+        alter:
+          type: integer
+        geschlecht:
+          type: string
+          example: mixed
+        massenstart:
+          type: boolean
+        overuse_knee:
+          type: boolean
+        rueckenschmerzen:
+          type: boolean
+        material:
+          type: string
+          example: aluminium
+        rennen_art:
+          type: string
+          example: road
+        schutzausruestung:
+          type: object
+          properties:
+            helm:
+              type: boolean
+            protektoren:
+              type: boolean
+        wetter_override:
+          type: object
+          properties:
+            temperature:
+              type: number
+            wind_speed:
+              type: number
+            precip:
+              type: number
+            condition:
+              type: string
+        start_time:
+          type: string
+          format: date-time
+
+    HeatmapResponse:
+      type: object
+      properties:
+        heatmap_url:
+          type: string
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SegmentInfo'
+
+    HeatmapResponseWithDistance:
+      allOf:
+        - $ref: '#/components/schemas/HeatmapResponse'
+        - type: object
+          properties:
+            distance_km:
+              type: number
+              description: Gesamtlänge der Strecke
+
+    SegmentInfo:
+      type: object
+      properties:
+        segment_index:
+          type: integer
+        center:
+          type: object
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+        slope:
+          type: number
+        sharp_curve:
+          type: boolean
+        terrain:
+          type: string
+        street_surface:
+          type: string
+        nighttime:
+          type: boolean
+        risk:
+          type: integer
+        injuries:
+          type: array
+          items:
+            type: string
+        sani_needed:
+          type: boolean
+        weather:
+          type: object
+          properties:
+            temperature: { type: number }
+            wind_speed: { type: number }
+            precip: { type: number }
+            condition: { type: string }
