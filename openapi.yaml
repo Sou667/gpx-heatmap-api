@@ -181,3 +181,115 @@ paths:
                           type: boolean
         '400':
           description: Fehlerhafte oder fehlende Daten
+
+  /heatmap-quick:
+    post:
+      summary: Präzise Risikoanalyse mit hoher Segmentdichte (SpeedBoost-Modus)
+      description: >
+        Funktioniert wie `/heatmap-with-weather`, nutzt aber eine deutlich feinere Segmentlänge (0.005 km).
+        Liefert zusätzlich die gesamte Streckenlänge in Kilometern zurück.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                coordinates:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: number
+                fahrer_typ:
+                  type: string
+                  example: hobby
+                anzahl:
+                  type: integer
+                  example: 2
+                rennen_art:
+                  type: string
+                  example: tour
+                geschlecht:
+                  type: string
+                  example: mixed
+                alter:
+                  type: integer
+                  example: 65
+                material:
+                  type: string
+                  example: aluminium
+                massenstart:
+                  type: boolean
+                  example: false
+                overuse_knee:
+                  type: boolean
+                  example: false
+                rueckenschmerzen:
+                  type: boolean
+                  example: false
+                start_time:
+                  type: string
+                  format: date-time
+                  example: "2025-04-11T12:00:00Z"
+                wetter_override:
+                  type: object
+                  example:
+                    temperature: 15
+                    wind_speed: 10
+                    precip: 0
+                    condition: Klar
+                schutzausruestung:
+                  type: object
+                  properties:
+                    helm:
+                      type: boolean
+                    protektoren:
+                      type: boolean
+      responses:
+        '200':
+          description: Präzise Risikoanalyse mit zusätzlicher Streckenlänge (km)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  heatmap_url:
+                    type: string
+                  distance_km:
+                    type: number
+                    description: Gesamtlänge der Strecke in Kilometern
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        segment_index:
+                          type: integer
+                        center:
+                          type: object
+                          properties:
+                            lat:
+                              type: number
+                            lon:
+                              type: number
+                        slope:
+                          type: number
+                        sharp_curve:
+                          type: boolean
+                        terrain:
+                          type: string
+                        weather:
+                          type: object
+                        street_surface:
+                          type: string
+                        nighttime:
+                          type: boolean
+                        risk:
+                          type: integer
+                        injuries:
+                          type: array
+                          items:
+                            type: string
+                        sani_needed:
+                          type: boolean
