@@ -110,17 +110,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  heatmap_url:
-                    type: string
-                  distance_km:
-                    type: number
-                    description: Gesamtlänge der Strecke (in Kilometern)
-                  segments:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Segment'
+                $ref: '#/components/schemas/HeatmapResponse'
 
 components:
   schemas:
@@ -139,27 +129,28 @@ components:
         anzahl:
           type: integer
           example: 2
-        rennen_art:
-          type: string
-          example: tour
+        alter:
+          type: integer
         geschlecht:
           type: string
           example: mixed
-        alter:
-          type: integer
-          example: 65
-        material:
-          type: string
-          example: aluminium
         massenstart:
           type: boolean
         overuse_knee:
           type: boolean
         rueckenschmerzen:
           type: boolean
-        start_time:
+        material:
           type: string
-          format: date-time
+          example: aluminium
+        rennen_art:
+          type: string
+          example: road
+        schutzausruestung:
+          type: object
+          properties:
+            helm: { type: boolean }
+            protektoren: { type: boolean }
         wetter_override:
           type: object
           properties:
@@ -167,11 +158,23 @@ components:
             wind_speed: { type: number }
             precip: { type: number }
             condition: { type: string }
-        schutzausruestung:
-          type: object
-          properties:
-            helm: { type: boolean }
-            protektoren: { type: boolean }
+        start_time:
+          type: string
+          format: date-time
+
+    HeatmapResponse:
+      type: object
+      properties:
+        heatmap_url:
+          type: string
+          format: uri
+        distance_km:
+          type: number
+          description: Gesamtlänge der Strecke in Kilometern
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Segment'
 
     Segment:
       type: object
