@@ -4,8 +4,8 @@ CycleDoc Heatmap-API – Comprehensive Optimized Version
 
 Diese API verarbeitet GPX-Daten, segmentiert Routen, berechnet diverse Parameter
 (sowie Steigung, Kurven, Wetter etc.) und erstellt eine interaktive Karte mit
-Risiko- und Sanitäterlogik. Der Code ist hoch performant, robust und dokumentiert
-mittels umfangreicher Type Hints und Docstrings.
+Risiko- und intelligenter Sanitäterlogik. Der Code ist hoch performant, robust
+und dokumentiert mittels umfangreicher Type Hints und Docstrings.
 
 Hinweis:
 - Für stark asynchrone I/O-Vorgänge (z. B. bei großen Dateischreibvorgängen) 
@@ -55,18 +55,17 @@ MIN_SEGMENT_LENGTH_KM: float = 0.005
 def cached_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
     """
     Berechnet die geodätische Entfernung (in km) zwischen zwei Punkten.
-    
+
     :param p1: Tuple (lat, lon) des ersten Punktes.
     :param p2: Tuple (lat, lon) des zweiten Punktes.
     :return: Entfernung in Kilometern.
     """
     return geodesic(p1, p2).km
 
-
 def bearing(a: List[float], b: List[float]) -> float:
     """
     Berechnet den Richtungswinkel von Punkt a zu Punkt b.
-    
+
     :param a: Liste [lat, lon, ...] des ersten Punktes.
     :param b: Liste [lat, lon, ...] des zweiten Punktes.
     :return: Winkel in Grad (0-360).
@@ -77,23 +76,21 @@ def bearing(a: List[float], b: List[float]) -> float:
     y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
-
 def angle_between(b1: float, b2: float) -> float:
     """
     Berechnet den minimalen Unterschied zwischen zwei Winkeln.
-    
+
     :param b1: Erster Winkel (in Grad).
     :param b2: Zweiter Winkel (in Grad).
     :return: Minimaler Winkelunterschied.
     """
     return min(abs(b1 - b2), 360 - abs(b1 - b2))
 
-
 def detect_sharp_curve(pts: List[List[float]], t: float = 60) -> bool:
     """
     Prüft, ob innerhalb einer Liste von Punkten ein scharfer Kurvenverlauf 
     (Winkelabweichung >= t°) existiert.
-    
+
     :param pts: Liste von Punkten.
     :param t: Schwellwert in Grad (Standard 60°).
     :return: True, wenn ein scharfer Kurvenverlauf festgestellt wird, sonst False.
@@ -103,11 +100,10 @@ def detect_sharp_curve(pts: List[List[float]], t: float = 60) -> bool:
         for i in range(len(pts) - 2)
     )
 
-
 def calc_slope(points: List[List[float]]) -> float:
     """
     Berechnet die prozentuale Steigung zwischen dem ersten und letzten Punkt.
-    
+
     :param points: Liste von Punkten; jeder Punkt enthält mindestens [lat, lon, elevation].
     :return: Steigung in Prozent.
     """
@@ -119,11 +115,10 @@ def calc_slope(points: List[List[float]]) -> float:
     dist_m = cached_distance(tuple(points[0][:2]), tuple(points[-1][:2])) * 1000
     return round((elev_diff / dist_m) * 100, 1) if dist_m > 1e-6 else 0.0
 
-
 def get_street_surface(lat: float, lon: float) -> str:
     """
     Bestimmt zufällig eine Straßenoberfläche basierend auf den Koordinaten.
-    
+
     :param lat: Breitengrad.
     :param lon: Längengrad.
     :return: Eine von "asphalt", "cobblestone", "gravel".
@@ -132,11 +127,10 @@ def get_street_surface(lat: float, lon: float) -> str:
     rng = random.Random(seed_val)
     return rng.choice(["asphalt", "cobblestone", "gravel"])
 
-
 def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
     """
     Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist.
-    
+
     :param dt: Datum und Uhrzeit.
     :param lat: Breitengrad.
     :param lon: Längengrad.
@@ -146,11 +140,10 @@ def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
     s = sun(loc.observer, date=dt.date())
     return dt < s["sunrise"] or dt > s["sunset"]
 
-
 def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM) -> List[List[List[float]]]:
     """
     Teilt eine Liste von Koordinaten in Segmente auf, die mindestens eine bestimmte Länge haben.
-    
+
     :param coords: Liste von Koordinaten.
     :param len_km: Mindestsegmentlänge in Kilometern.
     :return: Liste von Segmenten, wobei jedes Segment eine Liste von Punkten darstellt.
@@ -176,13 +169,12 @@ def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM)
         segments.append(current_segment)
     return segments
 
-
 def calc_risk(temp: float, wind: float, precip: float, slope: float,
               typ: str, n: int, **opt: Any) -> int:
     """
     Berechnet das Risiko der Route anhand verschiedener Parameter (Wetter, Steigung, Fahrerprofil etc.).
     Das Risiko wird auf einen Wert zwischen 1 und 5 begrenzt.
-    
+
     :param temp: Temperatur in °C.
     :param wind: Windgeschwindigkeit.
     :param precip: Niederschlagsmenge.
@@ -219,11 +211,10 @@ def calc_risk(temp: float, wind: float, precip: float, slope: float,
         risk += 2
     return max(1, min(risk, 5))
 
-
 def typical_injuries(risk: int, art: str) -> List[str]:
     """
     Gibt typische Verletzungen zurück, basierend auf dem Risiko und der Rennart.
-    
+
     :param risk: Risikowert (1-5).
     :param art: Rennart (z. B. "downhill", "freeride").
     :return: Liste von Verletzungsbeschreibungen.
@@ -231,11 +222,11 @@ def typical_injuries(risk: int, art: str) -> List[str]:
     if risk <= 2:
         return ["Abschürfungen", "Prellungen"]
     base = (["Abschürfungen", "Prellungen", "Claviculafraktur", "Handgelenksverletzung"]
-            if risk <= 4 else ["Abschürfungen", "Claviculafraktur", "Wirbelsäulenverletzung", "Beckenfraktur"])
+            if risk <= 4
+            else ["Abschürfungen", "Claviculafraktur", "Wirbelsäulenverletzung", "Beckenfraktur"])
     if art.lower() in ["downhill", "freeride"]:
         base.append("Schwere Rücken-/Organverletzungen" if risk == 5 else "Wirbelsäulenverletzung (selten)")
     return base
-
 
 # --- API Endpoints ---
 
@@ -243,7 +234,7 @@ def typical_injuries(risk: int, art: str) -> List[str]:
 def heatmap_quick() -> Any:
     """
     Erzeugt eine interaktive Heatmap basierend auf den übergebenen Koordinaten und Parametern.
-    
+
     :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
     """
     data: Dict[str, Any] = request.json or {}
@@ -269,7 +260,7 @@ def heatmap_quick() -> Any:
     seg_infos: List[Dict[str, Any]] = []
     all_locations: List[Tuple[float, float]] = []
 
-    # Verarbeitung der Segmente
+    # Verarbeitung der Segmente und Erzeugung von Segment-Informationen
     for i, seg in enumerate(segments):
         if not seg:
             continue
@@ -311,25 +302,50 @@ def heatmap_quick() -> Any:
             "street_surface": surface,
             "risk": risk,
             "injuries": injuries,
-            "sani_needed": False  # Wird nachfolgend gesetzt
+            "sani_needed": False  # wird nachher anhand der Sani-Logik gesetzt
         })
         all_locations.extend([(p[0], p[1]) for p in seg])
 
-    # Sanitäterlogik: Bei Rennmodus nur alle 5 riskante Segmente als kritisch markieren
+    # --- Optimierte Sani-Logik: Clusterbildung und Marker-Platzierung in einem Durchlauf ---
     race_mode = data.get("rennen_art", "").lower() in ["rennen", "road", "downhill", "freeride", "mtb"]
-    last_sani_index = -999
-    for i, info in enumerate(seg_infos):
-        if info.get("risk", 1) >= 3:
-            if race_mode:
-                if i - last_sani_index >= 5:
-                    info["sani_needed"] = True
-                    last_sani_index = i
-            else:
-                info["sani_needed"] = True
+    min_gap = 5  # Mindestabstand zwischen markierten Clustern im Rennmodus
 
-    # Karten-Erstellung mit Folium
+    # Schritt 1: Alle Indizes sammeln, bei denen das Risiko >= 3 ist
+    risk_indices = [i for i, info in enumerate(seg_infos) if info.get("risk", 0) >= 3]
+
+    # Schritt 2: Gruppiere zusammenhängende Indizes in Cluster
+    clusters = []
+    current_cluster = []
+    for idx in risk_indices:
+        if not current_cluster or idx - current_cluster[-1] <= 1:
+            current_cluster.append(idx)
+        else:
+            clusters.append(current_cluster)
+            current_cluster = [idx]
+    if current_cluster:
+        clusters.append(current_cluster)
+
+    # Schritt 3: Marker-Platzierung
+    last_sani_index = -min_gap  # Initialwert, sodass das erste Cluster sofort ausgewertet wird
+
+    for cluster in clusters:
+        if not cluster:
+            continue
+        if race_mode:
+            # Im Rennmodus: Verwende den Median-Index des Clusters als repräsentativen Marker,
+            # sofern der Abstand zum letzten gesetzten Marker mindestens min_gap beträgt.
+            candidate = cluster[len(cluster) // 2]
+            if candidate - last_sani_index >= min_gap:
+                seg_infos[candidate]["sani_needed"] = True
+                last_sani_index = candidate
+        else:
+            # Im Privatmodus: Markiere alle riskanten Segmente des Clusters
+            for idx in cluster:
+                seg_infos[idx]["sani_needed"] = True
+
+    # --- Karten-Erstellung mit Folium ---
     try:
-        m = folium.Map(location=[coords[0][0], coords[0][1]], zoom_start=13)
+        m: folium.Map = folium.Map(location=[coords[0][0], coords[0][1]], zoom_start=13)
     except Exception as e:
         logger.error("Fehler beim Erstellen der Karte: %s", e)
         return jsonify({"error": "Fehler bei der Kartenerstellung"}), 500
@@ -350,7 +366,7 @@ def heatmap_quick() -> Any:
         """
         Gruppiert Segmente anhand eines Signatur-Tupels (Risikowert und Gründe)
         zur besseren visuellen Darstellung.
-        
+
         :return: Liste gruppierter Segmentinformationen.
         """
         groups: List[Dict[str, Any]] = []
@@ -415,18 +431,16 @@ def heatmap_quick() -> Any:
         "segments": seg_infos
     })
 
-
 @app.route("/", methods=["GET"])
 def home() -> str:
     """Einfacher Health-Check-Endpunkt."""
     return "✅ CycleDoc Heatmap-API bereit"
 
-
 @app.route("/parse-gpx", methods=["POST"])
 def parse_gpx() -> Any:
     """
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
-    
+
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
     if "file" not in request.files:
@@ -453,12 +467,11 @@ def parse_gpx() -> Any:
     )
     return jsonify({"coordinates": coords, "distance_km": round(total_km, 2)})
 
-
 @app.route("/chunk-upload", methods=["POST"])
 def chunk_upload() -> Any:
     """
     Teilt eine Liste von Koordinaten in kleinere JSON-Chunks und speichert diese.
-    
+
     :return: JSON mit einer Bestätigung und der Liste der gespeicherten Chunk-Dateinamen.
     """
     data: Dict[str, Any] = request.json or {}
@@ -473,7 +486,7 @@ def chunk_upload() -> Any:
         fn = os.path.join("chunks", f"chunk_{i+1}.json")
         try:
             with open(fn, "w", encoding="utf-8") as f:
-                json.dump({"coordinates": coords[i*size:(i+1)*size]}, f, ensure_ascii=False, indent=2)
+                json.dump({"coordinates": coords[i * size:(i + 1) * size]}, f, ensure_ascii=False, indent=2)
             files.append(fn)
         except Exception as e:
             logger.error("Fehler beim Speichern von Chunk %d: %s", i+1, e)
@@ -481,12 +494,11 @@ def chunk_upload() -> Any:
 
     return jsonify({"message": f"{len(files)} Chunks gespeichert", "chunks": files})
 
-
 @app.route("/openapi.yaml", methods=["GET"])
 def serve_openapi() -> Any:
     """
     Stellt die OpenAPI-Spezifikation im YAML-Format bereit.
-    
+
     :return: Die YAML-Datei oder eine Fehlermeldung, falls sie nicht gefunden wurde.
     """
     try:
@@ -494,7 +506,6 @@ def serve_openapi() -> Any:
     except Exception as e:
         logger.error("Fehler beim Senden der OpenAPI-Datei: %s", e)
         return jsonify({"error": "OpenAPI-Datei nicht gefunden"}), 404
-
 
 if __name__ == "__main__":
     # Für den Produktionseinsatz Debugmodus deaktivieren!
