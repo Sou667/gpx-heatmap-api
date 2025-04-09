@@ -5,117 +5,61 @@
 ![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1.0-yellow)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-CycleDoc ist ein KI-gestütztes Analyse-Tool für Radsportverletzungen.  
-Es verarbeitet GPX-Streckendaten und erstellt interaktive Risiko-Heatmaps basierend auf:
+CycleDoc Heatmap API ist ein KI-gestütztes Analyse-Tool für Radsportverletzungen.  
+Die API verarbeitet GPX-Streckendaten, segmentiert die Strecke und berechnet Risiko‑Werte basierend auf:
 
-- Wetterlage (via WeatherStack oder Override)
-- Streckenprofil & Oberfläche
-- wissenschaftlichen Studien (z. B. Rehlinghaus, Kronisch, Nelson, Clarsen etc.)
+- Aktueller Wetterlage (via WeatherStack oder manuelle Overrides)
+- Streckenprofil und Straßenoberfläche
+- Wissenschaftlichen Studien (z. B. Rehlinghaus, Kronisch, Nelson, Clarsen etc.)
+
+Mit Hilfe einer intelligenten, clusterbasierten Sanitäter‑Logik werden interaktive Risiko‑Heatmaps generiert, die als strukturierte JSON‑Objekte zurückgegeben werden.
+
+---
 
 ## 🌐 Live-Demo
 
 👉 [Jetzt testen](https://gpx-heatmap-api.onrender.com/static/heatmap_YYYYMMDDHHMMSS.html)  
-GPX-Datei + JSON an `/heatmap-quick` senden → interaktive Karte mit Risikobewertung & Saniposten
+Sende eine GPX-Datei und JSON an `/heatmap-quick`, um eine interaktive Karte mit Risikobewertung und Saniposten zu erhalten.
 
 ---
 
 ## 🔧 Funktionen
 
-- Analyse realer GPX-Strecken (über `/parse-gpx` oder JSON-Body)
-- Segmentweise Risikoanalyse (0.005 km Auflösung)
-- Wetterbasierte Risikoeinstufung
-- Visualisierung mit Heatmap (grün = geringes Risiko, rot = hohes Risiko)
-- 🚑 Saniposten-Empfehlung bei `risk ≥ 3`
-- Durchschnitts-Risiko & Verletzungsprognose
-- Volle OpenAPI-Integration & GPT-Kompatibilität
+- **GPX-Analyse:**  
+  Extraktion realer Streckendaten über den Endpunkt `/parse-gpx` oder per direktem JSON-Input.
+
+- **Segmentweise Risikoanalyse:**  
+  Auflösung von 0.005 km, um kurze Streckenabschnitte zu analysieren.
+
+- **Wetter- und Streckenbewertung:**  
+  Berücksichtigt Parameter wie Temperatur, Wind, Niederschlag, Steigung sowie Straßenoberfläche.
+
+- **Intelligente Sanitäter‑Logik:**  
+  - **Rennmodus:** In riskanten Clustern wird – unter Einhaltung eines Mindestabstands – nur ein repräsentativer Marker gesetzt.
+  - **Privattouren:** Alle riskanten Segmente werden markiert.
+  
+- **Interaktive Heatmaps:**  
+  Visualisierung der Route (grün = geringes Risiko, rot = hohes Risiko) mit integrierten Risiko- und Verletzungseinschätzungen.
+
+- **Volle OpenAPI-Integration:**  
+  Umfangreiche API-Dokumentation (OpenAPI 3.1) ist über `/openapi.yaml` abrufbar.
 
 ---
 
-## 📦 Installation (lokal)
+## 📦 Abhängigkeiten
 
-```bash
-git clone https://github.com/dein-username/gpx-heatmap-api.git
-cd gpx-heatmap-api
-pip install -r requirements.txt
-python main.py
-```
+Die API verwendet folgende Python-Pakete:
 
-API ist dann erreichbar unter `http://localhost:5000`
+- **flask**
+- **requests**
+- **folium**
+- **geopy**
+- **gpxpy**
+- **astral**
+- **weasyprint**
+- **gunicorn**
 
----
+### Installation über `requirements.txt`
 
-## 🚀 Deployment (Render.com)
+Erstelle eine Datei `requirements.txt` mit folgendem Inhalt:
 
-1. Repository verbinden
-2. `main.py` als Startpunkt setzen
-3. Python 3.11 oder höher wählen
-4. Build Command: `pip install -r requirements.txt`
-5. Start Command: `python main.py`
-
----
-
-## 📘 API-Dokumentation (OpenAPI 3.1)
-
-**POST /heatmap-quick**
-
-Analysiert eine Strecke und erstellt eine Heatmap:
-
-- `coordinates`: Liste von GPS-Koordinaten
-- `fahrer_typ`, `alter`, `geschlecht`, `rennen_art`
-- `start_time`: UTC im ISO-Format
-- `wetter_override`: optional manuelle Wetterdaten
-- `schutzausruestung`, `overuse_knee`, `rueckenschmerzen`, `massenstart`
-
-Antwort enthält:
-
-- `heatmap_url`: Link zur Karte
-- `distance_km`: Gesamtlänge
-- `segments[]`: je Segment mit Risiko, Terrain, Wetter, Oberfläche, Verletzungsrisiko
-
-→ Vollständige Spezifikation: [openapi.yaml](https://gpx-heatmap-api.onrender.com/openapi.yaml)
-
----
-
-## 📊 Beispiel-Workflow
-
-```json
-POST /heatmap-quick
-{
-  "coordinates": [[51.242, 6.830, 42.0], [51.243, 6.831, 42.1]],
-  "fahrer_typ": "hobby",
-  "anzahl": 1,
-  "alter": 42,
-  "geschlecht": "m",
-  "material": "aluminium",
-  "start_time": "2025-04-09T10:00:00Z",
-  "wetter_override": {
-    "temperature": 5,
-    "wind_speed": 20,
-    "precip": 1.2,
-    "condition": "snow"
-  },
-  "schutzausruestung": {
-    "helm": true,
-    "protektoren": false
-  }
-}
-```
-
----
-
-## 📚 Studienquellen
-
-- Rehlinghaus, M. (2022). *Verletzungen im Radsport*
-- Kronisch, R. (2002)
-- Nelson, N. (2010)
-- Dannenberg, A. (1996)
-- Ruedl, G. (2015)
-- Clarsen, B. (2005)
-
-Verwendet für evidenzbasierte Risiko- & Verletzungsmodelle
-
----
-
-## 📎 Lizenz
-
-MIT License – freie Nutzung, Modifikation & Weiterverwendung erlaubt.
