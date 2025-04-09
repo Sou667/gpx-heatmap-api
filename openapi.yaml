@@ -1,11 +1,10 @@
 openapi: 3.1.0
 info:
-  title: CycleDoc GPX Heatmap API
+  title: CycleDoc Heatmap API
   version: "1.0"
   description: >
-    Diese API verarbeitet GPX-Koordinaten und analysiert Risiken entlang einer Strecke.
-    Sie erstellt eine farbige Heatmap mit optionalen Saniposten und liefert segmentweise Risikobewertung
-    inkl. Wetter-, Strecken- und Oberflächendaten.
+    Diese API analysiert GPX-Daten, segmentiert die Strecke, berechnet Risiken auf Basis von Wetter, Kurven, Oberfläche etc.,
+    erstellt interaktive Karten mit Farbvisualisierung und Sanitäter-Logik und liefert Ergebnisse als strukturierte JSON-Risikoanalyse.
 
 servers:
   - url: https://gpx-heatmap-api.onrender.com
@@ -13,8 +12,8 @@ servers:
 paths:
   /heatmap-quick:
     post:
-      summary: Risikoanalyse mit Heatmap-Visualisierung (SpeedBoost – 0.005 km Segmente)
-      operationId: generateHeatmapQuick
+      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung (SpeedBoost)
+      operationId: analyzeHeatmapQuick
       requestBody:
         required: true
         content:
@@ -23,19 +22,104 @@ paths:
               $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
-          description: Analyseergebnis mit Heatmap-URL, Segmentdaten und Streckenlänge
+          description: Risikoanalyse erfolgreich abgeschlossen
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HeatmapResponse'
         '400':
-          description: Fehlerhafte oder fehlende Daten
+          description: Ungültige oder fehlende Koordinaten
+        '500':
+          description: Interner Serverfehler
+
+  /parse-gpx:
+    post:
+      summary: GPX-Datei hochladen und Koordinaten + Distanz extrahieren
+      operationId: parseGpxFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: GPX-Daten erfolgreich geparst
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  coordinates:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: number
+                  distance_km:
+                    type: number
+        '400':
+          description: Fehlerhafte oder ungültige GPX-Datei
+
+  /chunk-upload:
+    post:
+      summary: GPX-Koordinaten in Chunks unterteilen und speichern
+      operationId: chunkUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                coordinates:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: number
+                chunk_size:
+                  type: integer
+                  default: 200
+      responses:
+        '200':
+          description: Chunks erfolgreich gespeichert
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  chunks:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Keine gültigen Koordinaten empfangen
+
+  /openapi.yaml:
+    get:
+      summary: Liefert die OpenAPI-Spezifikation (YAML)
+      operationId: getOpenapiYaml
+      responses:
+        '200':
+          description: YAML-Datei gefunden
+          content:
+            text/yaml:
+              schema:
+                type: string
+        '404':
+          description: Datei nicht gefunden
 
 components:
   schemas:
     HeatmapRequest:
       type: object
-      required: [coordinates, fahrer_typ, alter, geschlecht]
       properties:
         coordinates:
           type: array
@@ -45,16 +129,12 @@ components:
               type: number
         fahrer_typ:
           type: string
-          example: hobby
         anzahl:
           type: integer
-          example: 5
         alter:
           type: integer
-          example: 39
         geschlecht:
           type: string
-          example: m
         massenstart:
           type: boolean
         overuse_knee:
@@ -63,10 +143,8 @@ components:
           type: boolean
         material:
           type: string
-          example: aluminium
         rennen_art:
           type: string
-          example: road
         start_time:
           type: string
           format: date-time
@@ -75,16 +153,12 @@ components:
           properties:
             temperature:
               type: number
-              example: 12
             wind_speed:
               type: number
-              example: 10
             precip:
               type: number
-              example: 0.2
             condition:
               type: string
-              example: cloudy
         schutzausruestung:
           type: object
           properties:
@@ -99,10 +173,8 @@ components:
         heatmap_url:
           type: string
           format: uri
-          example: "https://gpx-heatmap-api.onrender.com/static/heatmap_YYYYMMDDHHMMSS.html"
         distance_km:
           type: number
-          example: 15.0
         segments:
           type: array
           items:
@@ -126,14 +198,10 @@ components:
               weather:
                 type: object
                 properties:
-                  temperature:
-                    type: number
-                  wind_speed:
-                    type: number
-                  precip:
-                    type: number
-                  condition:
-                    type: string
+                  temperature: { type: number }
+                  wind_speed: { type: number }
+                  precip: { type: number }
+                  condition: { type: string }
               street_surface:
                 type: string
               nighttime:
@@ -142,7 +210,6 @@ components:
                 type: integer
               injuries:
                 type: array
-                items:
-                  type: string
+                items: { type: string }
               sani_needed:
                 type: boolean
