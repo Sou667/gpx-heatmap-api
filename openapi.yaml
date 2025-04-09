@@ -3,8 +3,10 @@ info:
   title: CycleDoc Heatmap API
   version: "1.0"
   description: >
-    Diese API analysiert GPX-Daten, segmentiert die Strecke, berechnet Risiken auf Basis von Wetter, Kurven, Oberfläche etc.,
-    erstellt interaktive Karten mit Farbvisualisierung und Sanitäter-Logik und liefert Ergebnisse als strukturierte JSON-Risikoanalyse.
+    Diese API analysiert GPX-Daten, segmentiert die Strecke, berechnet Risiken auf Basis von 
+    Wetter, Kurven, Straßenoberfläche etc., erstellt interaktive Karten mit Farbvisualisierung 
+    und einer intelligenten, clusterbasierten Sanitäter-Logik und liefert die Ergebnisse als 
+    strukturierte JSON-Risikoanalyse.
 
 servers:
   - url: https://gpx-heatmap-api.onrender.com
@@ -12,7 +14,7 @@ servers:
 paths:
   /heatmap-quick:
     post:
-      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung (SpeedBoost)
+      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung mit erweiterter Sani‑Logik
       operationId: analyzeHeatmapQuick
       requestBody:
         required: true
@@ -22,15 +24,15 @@ paths:
               $ref: '#/components/schemas/HeatmapRequest'
       responses:
         '200':
-          description: Risikoanalyse erfolgreich abgeschlossen
+          description: Risikoanalyse erfolgreich abgeschlossen.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HeatmapResponse'
         '400':
-          description: Ungültige oder fehlende Koordinaten
+          description: Ungültige oder fehlende Koordinaten.
         '500':
-          description: Interner Serverfehler
+          description: Interner Serverfehler.
 
   /parse-gpx:
     post:
@@ -48,7 +50,7 @@ paths:
                   format: binary
       responses:
         '200':
-          description: GPX-Daten erfolgreich geparst
+          description: GPX-Daten erfolgreich geparst.
           content:
             application/json:
               schema:
@@ -63,7 +65,7 @@ paths:
                   distance_km:
                     type: number
         '400':
-          description: Fehlerhafte oder ungültige GPX-Datei
+          description: Fehlerhafte oder ungültige GPX-Datei.
 
   /chunk-upload:
     post:
@@ -87,7 +89,7 @@ paths:
                   default: 200
       responses:
         '200':
-          description: Chunks erfolgreich gespeichert
+          description: Chunks erfolgreich gespeichert.
           content:
             application/json:
               schema:
@@ -100,21 +102,21 @@ paths:
                     items:
                       type: string
         '400':
-          description: Keine gültigen Koordinaten empfangen
+          description: Keine gültigen Koordinaten empfangen.
 
   /openapi.yaml:
     get:
-      summary: Liefert die OpenAPI-Spezifikation (YAML)
+      summary: Liefert die OpenAPI‑Spezifikation (YAML)
       operationId: getOpenapiYaml
       responses:
         '200':
-          description: YAML-Datei gefunden
+          description: YAML-Datei gefunden.
           content:
             text/yaml:
               schema:
                 type: string
         '404':
-          description: Datei nicht gefunden
+          description: Datei nicht gefunden.
 
 components:
   schemas:
@@ -123,33 +125,47 @@ components:
       properties:
         coordinates:
           type: array
+          description: >
+            Array von Koordinaten. Jede Koordinate ist ein Array, das mindestens Latitude, Longitude 
+            und optional Elevation enthält.
           items:
             type: array
             items:
               type: number
         fahrer_typ:
           type: string
+          description: Fahrertyp, z. B. "hobby" oder "profi".
         anzahl:
           type: integer
+          description: Anzahl der Teilnehmer.
         alter:
           type: integer
+          description: Alter des Fahrers bzw. der Fahrer.
         geschlecht:
           type: string
+          description: Geschlecht des Fahrers (z. B. "m", "w").
         massenstart:
           type: boolean
+          description: Gibt an, ob es sich um einen Massenstart handelt.
         overuse_knee:
           type: boolean
+          description: Gibt an, ob Überbeanspruchung der Knie besteht.
         rueckenschmerzen:
           type: boolean
+          description: Gibt an, ob Rückenbeschwerden vorliegen.
         material:
           type: string
+          description: Verwendetes Material des Fahrrads (z. B. "carbon", "aluminium").
         rennen_art:
           type: string
+          description: Art des Rennens, z. B. "downhill", "freeride", "rennen".
         start_time:
           type: string
           format: date-time
+          description: ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde.
         wetter_override:
           type: object
+          description: Optionale Wetterdaten, die die Echtzeitwetterinformationen überschreiben.
           properties:
             temperature:
               type: number
@@ -161,6 +177,7 @@ components:
               type: string
         schutzausruestung:
           type: object
+          description: Angaben zur getragenen Schutzausrüstung.
           properties:
             helm:
               type: boolean
@@ -173,17 +190,22 @@ components:
         heatmap_url:
           type: string
           format: uri
+          description: URL der generierten Heatmap im statischen Verzeichnis.
         distance_km:
           type: number
+          description: Gesamtstrecke in Kilometern.
         segments:
           type: array
+          description: Liste der analysierten Segmente.
           items:
             type: object
             properties:
               segment_index:
                 type: integer
+                description: Laufende Nummer des Segments.
               center:
                 type: object
+                description: Zentraler Punkt des Segments.
                 properties:
                   lat:
                     type: number
@@ -191,25 +213,39 @@ components:
                     type: number
               slope:
                 type: number
+                description: Steigung des Segments in Prozent.
               sharp_curve:
                 type: boolean
+                description: Gibt an, ob das Segment eine scharfe Kurve enthält.
               terrain:
                 type: string
+                description: Gibt das Terrain an ("Anstieg", "Abfahrt", "Flach").
               weather:
                 type: object
+                description: Wetterdaten, die für die Segmentanalyse verwendet wurden.
                 properties:
-                  temperature: { type: number }
-                  wind_speed: { type: number }
-                  precip: { type: number }
-                  condition: { type: string }
+                  temperature:
+                    type: number
+                  wind_speed:
+                    type: number
+                  precip:
+                    type: number
+                  condition:
+                    type: string
               street_surface:
                 type: string
+                description: Ermittelte Straßenoberfläche (z. B. asphalt, cobblestone, gravel).
               nighttime:
                 type: boolean
+                description: True, wenn das Segment in der Nacht gefahren wurde.
               risk:
                 type: integer
+                description: Berechnetes Risiko des Segments (Wert zwischen 1 und 5).
               injuries:
                 type: array
-                items: { type: string }
+                description: Liste typischer Verletzungsbilder für das Segment.
+                items:
+                  type: string
               sani_needed:
                 type: boolean
+                description: Flag, das angibt, ob basierend auf der erweiterten (clusterbasierten) Risikoanalyse ein Saniposten empfohlen wird.
