@@ -6,8 +6,10 @@ info:
     Diese API verarbeitet GPX-Koordinaten und analysiert Risiken entlang einer Strecke.
     Sie erstellt eine farbige Heatmap mit optionalen Saniposten und liefert segmentweise Risikobewertung
     inkl. Wetter-, Strecken- und Oberflächendaten.
+
 servers:
   - url: https://gpx-heatmap-api.onrender.com
+
 paths:
   /heatmap-quick:
     post:
@@ -29,43 +31,11 @@ paths:
         '400':
           description: Fehlerhafte oder fehlende Daten
 
-  /parse-gpx:
-    post:
-      summary: GPX-Datei hochladen und Koordinaten extrahieren
-      operationId: parseGpx
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-      responses:
-        '200':
-          description: Extrahierte GPS-Koordinaten und Streckenlänge
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  coordinates:
-                    type: array
-                    items:
-                      type: array
-                      items:
-                        type: number
-                  distance_km:
-                    type: number
-        '400':
-          description: Keine Datei empfangen
-
 components:
   schemas:
     HeatmapRequest:
       type: object
+      required: [coordinates, fahrer_typ, alter, geschlecht]
       properties:
         coordinates:
           type: array
@@ -75,12 +45,16 @@ components:
               type: number
         fahrer_typ:
           type: string
+          example: hobby
         anzahl:
           type: integer
+          example: 5
         alter:
           type: integer
+          example: 39
         geschlecht:
           type: string
+          example: m
         massenstart:
           type: boolean
         overuse_knee:
@@ -89,8 +63,10 @@ components:
           type: boolean
         material:
           type: string
+          example: aluminium
         rennen_art:
           type: string
+          example: road
         start_time:
           type: string
           format: date-time
@@ -99,12 +75,16 @@ components:
           properties:
             temperature:
               type: number
+              example: 12
             wind_speed:
               type: number
+              example: 10
             precip:
               type: number
+              example: 0.2
             condition:
               type: string
+              example: cloudy
         schutzausruestung:
           type: object
           properties:
@@ -122,6 +102,7 @@ components:
           example: "https://gpx-heatmap-api.onrender.com/static/heatmap_YYYYMMDDHHMMSS.html"
         distance_km:
           type: number
+          example: 15.0
         segments:
           type: array
           items:
