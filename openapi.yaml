@@ -35,7 +35,7 @@ paths:
 
   /parse-gpx:
     post:
-      summary: GPX-Datei hochladen und Koordinaten + Distanz extrahieren
+      summary: GPX-Datei hochladen und Koordinaten sowie Distanz extrahieren
       operationId: parseGpxFile
       requestBody:
         required: true
@@ -47,6 +47,9 @@ paths:
                 file:
                   type: string
                   format: binary
+                  description: >
+                    Die zu verarbeitende GPX-Datei. Bitte laden Sie die Datei direkt als .gpx hoch.
+                    ZIP-Archive oder entpackte Dateien werden **nicht unterstützt**.
       responses:
         '200':
           description: GPX-Daten erfolgreich geparst.
@@ -137,7 +140,7 @@ components:
           example: [[51.242, 6.830, 42.0], [51.243, 6.831, 42.1]]
         fahrer_typ:
           type: string
-          description: Fahrertyp, z. B. "hobby" oder "profi".
+          description: Fahrertyp, z. B. "hobby" oder "profi".
           example: "hobby"
         anzahl:
           type: integer
