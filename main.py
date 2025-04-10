@@ -8,7 +8,7 @@ Risiko- und intelligenter Sanitäterlogik. Der Code ist hoch performant, robust
 und dokumentiert mittels umfangreicher Type Hints und Docstrings.
 
 Hinweis:
-- Für stark asynchrone I/O-Vorgänge (z. B. bei großen Dateischreibvorgängen) 
+- Für stark asynchrone I/O-Vorgänge (z. B. bei großen Dateischreibvorgängen)
   empfiehlt sich der Einsatz eines Task-Queue-Systems wie Celery.
 - Im produktiven Einsatz sollte der Debug-Modus deaktiviert werden.
 """
@@ -58,23 +58,11 @@ MIN_SEGMENT_LENGTH_KM: float = 0.005
 
 @lru_cache(maxsize=4096)
 def cached_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
-    """
-    Berechnet die geodätische Entfernung (in km) zwischen zwei Punkten.
-    
-    :param p1: Tuple (lat, lon) des ersten Punktes.
-    :param p2: Tuple (lat, lon) des zweiten Punktes.
-    :return: Entfernung in Kilometern.
-    """
+    """Berechnet die geodätische Entfernung (in km) zwischen zwei Punkten."""
     return geodesic(p1, p2).km
 
 def bearing(a: List[float], b: List[float]) -> float:
-    """
-    Berechnet den Richtungswinkel von Punkt a zu Punkt b.
-    
-    :param a: Liste [lat, lon, ...] des ersten Punktes.
-    :param b: Liste [lat, lon, ...] des zweiten Punktes.
-    :return: Winkel in Grad (0-360).
-    """
+    """Berechnet den Richtungswinkel von Punkt a zu Punkt b."""
     lat1, lon1, lat2, lon2 = map(math.radians, [a[0], a[1], b[0], b[1]])
     dlon = lon2 - lon1
     x = math.sin(dlon) * math.cos(lat2)
@@ -82,36 +70,18 @@ def bearing(a: List[float], b: List[float]) -> float:
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 def angle_between(b1: float, b2: float) -> float:
-    """
-    Berechnet den minimalen Unterschied zwischen zwei Winkeln.
-    
-    :param b1: Erster Winkel (in Grad).
-    :param b2: Zweiter Winkel (in Grad).
-    :return: Minimaler Winkelunterschied.
-    """
+    """Berechnet den minimalen Unterschied zwischen zwei Winkeln."""
     return min(abs(b1 - b2), 360 - abs(b1 - b2))
 
 def detect_sharp_curve(pts: List[List[float]], t: float = 60) -> bool:
-    """
-    Prüft, ob innerhalb einer Liste von Punkten ein scharfer Kurvenverlauf 
-    (Winkelabweichung >= t°) existiert.
-    
-    :param pts: Liste von Punkten.
-    :param t: Schwellwert in Grad (Standard 60°).
-    :return: True, wenn ein scharfer Kurvenverlauf festgestellt wird, sonst False.
-    """
+    """Prüft, ob innerhalb einer Liste von Punkten ein scharfer Kurvenverlauf (>= t°) existiert."""
     return any(
         angle_between(bearing(pts[i], pts[i+1]), bearing(pts[i+1], pts[i+2])) >= t
         for i in range(len(pts) - 2)
     )
 
 def calc_slope(points: List[List[float]]) -> float:
-    """
-    Berechnet die prozentuale Steigung zwischen dem ersten und letzten Punkt.
-    
-    :param points: Liste von Punkten; jeder Punkt enthält mindestens [lat, lon, elevation].
-    :return: Steigung in Prozent.
-    """
+    """Berechnet die prozentuale Steigung zwischen dem ersten und letzten Punkt."""
     if len(points) < 2:
         return 0.0
     start_elev = points[0][2] if len(points[0]) > 2 else 0
@@ -121,38 +91,19 @@ def calc_slope(points: List[List[float]]) -> float:
     return round((elev_diff / dist_m) * 100, 1) if dist_m > 1e-6 else 0.0
 
 def get_street_surface(lat: float, lon: float) -> str:
-    """
-    Bestimmt zufällig eine Straßenoberfläche basierend auf den Koordinaten.
-    
-    :param lat: Breitengrad.
-    :param lon: Längengrad.
-    :return: Eine von "asphalt", "cobblestone", "gravel".
-    """
+    """Bestimmt zufällig eine Straßenoberfläche basierend auf den Koordinaten."""
     seed_val = int(abs(lat * 1000) + abs(lon * 1000))
     rng = random.Random(seed_val)
     return rng.choice(["asphalt", "cobblestone", "gravel"])
 
 def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
-    """
-    Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist.
-    
-    :param dt: Datum und Uhrzeit.
-    :param lat: Breitengrad.
-    :param lon: Längengrad.
-    :return: True, wenn es Nacht ist, sonst False.
-    """
+    """Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist."""
     loc = LocationInfo("loc", "", "UTC", lat, lon)
     s = sun(loc.observer, date=dt.date())
     return dt < s["sunrise"] or dt > s["sunset"]
 
 def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM) -> List[List[List[float]]]:
-    """
-    Teilt eine Liste von Koordinaten in Segmente auf, die mindestens eine bestimmte Länge haben.
-    
-    :param coords: Liste von Koordinaten.
-    :param len_km: Mindestsegmentlänge in Kilometern.
-    :return: Liste von Segmenten, wobei jedes Segment eine Liste von Punkten darstellt.
-    """
+    """Teilt eine Liste von Koordinaten in Segmente auf, die mindestens eine bestimmte Länge haben."""
     segments: List[List[List[float]]] = []
     current_segment: List[List[float]] = []
     total_dist: float = 0.0
@@ -175,12 +126,7 @@ def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM)
     return segments
 
 def is_valid_coordinates(coords: Any) -> bool:
-    """
-    Überprüft, ob `coords` eine Liste ist, die mindestens einen Punkt (als Liste mit mindestens zwei numerischen Werten) enthält.
-    
-    :param coords: Die zu validierenden Koordinaten.
-    :return: True, wenn gültig, sonst False.
-    """
+    """Überprüft, ob 'coords' eine Liste mit mindestens einem gültigen Punkt ([Latitude, Longitude]) ist."""
     if not isinstance(coords, list) or not coords:
         return False
     for point in coords:
@@ -195,15 +141,6 @@ def calc_risk(temp: float, wind: float, precip: float, slope: float,
     """
     Berechnet das Risiko der Route anhand verschiedener Parameter (Wetter, Steigung, Fahrerprofil etc.).
     Das Risiko wird auf einen Wert zwischen 1 und 5 begrenzt.
-    
-    :param temp: Temperatur in °C.
-    :param wind: Windgeschwindigkeit.
-    :param precip: Niederschlagsmenge.
-    :param slope: Steigung der Strecke in Prozent.
-    :param typ: Fahrerprofil (z. B. "hobby", "profi").
-    :param n: Anzahl der Teilnehmer.
-    :param opt: Zusätzliche optionale Parameter (z. B. nighttime, sharp_curve, geschlecht, alter usw.).
-    :return: Risiko als Integer (1 bis 5).
     """
     def safe(val: Any, default: Any) -> Any:
         return default if val is None else val
@@ -234,11 +171,7 @@ def calc_risk(temp: float, wind: float, precip: float, slope: float,
 
 def typical_injuries(risk: int, art: str) -> List[str]:
     """
-    Gibt typische Verletzungen zurück, basierend auf dem Risiko und der Rennart.
-    
-    :param risk: Risikowert (1-5).
-    :param art: Rennart (z. B. "downhill", "freeride").
-    :return: Liste von Verletzungsbeschreibungen.
+    Gibt typische Verletzungen basierend auf dem Risiko und der Rennart zurück.
     """
     if risk <= 2:
         return ["Abschürfungen", "Prellungen"]
@@ -255,7 +188,6 @@ def typical_injuries(risk: int, art: str) -> List[str]:
 def heatmap_quick() -> Any:
     """
     Erzeugt eine interaktive Heatmap basierend auf den übergebenen Koordinaten und Parametern.
-    
     :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
     """
     data: Dict[str, Any] = request.json or {}
@@ -360,14 +292,11 @@ def heatmap_quick() -> Any:
         if not cluster:
             continue
         if race_mode:
-            # Im Rennmodus: Verwende den Median-Index des Clusters als repräsentativen Marker,
-            # sofern der Abstand zum letzten gesetzten Marker mindestens min_gap beträgt.
             candidate = cluster[len(cluster) // 2]
             if candidate - last_sani_index >= min_gap:
                 seg_infos[candidate]["sani_needed"] = True
                 last_sani_index = candidate
         else:
-            # Im Privatmodus: Markiere alle riskanten Segmente des Clusters
             for idx in cluster:
                 seg_infos[idx]["sani_needed"] = True
 
@@ -378,11 +307,9 @@ def heatmap_quick() -> Any:
         logger.error("Fehler beim Erstellen der Karte: %s", e)
         return jsonify({"error": "Fehler bei der Kartenerstellung"}), 500
 
-    # Gesamte Route als Polyline
     folium.PolyLine([(p[0], p[1]) for p in coords], color="blue", weight=3, opacity=0.6).add_to(m)
 
     def color_by_risk(risk_val: int) -> str:
-        """Bestimmt die Farbe basierend auf dem Risikowert."""
         if risk_val <= 2:
             return "green"
         elif risk_val == 3:
@@ -391,12 +318,6 @@ def heatmap_quick() -> Any:
             return "red"
 
     def group_segments() -> List[Dict[str, Any]]:
-        """
-        Gruppiert Segmente anhand eines Signatur-Tupels (Risikowert und Gründe)
-        zur besseren visuellen Darstellung.
-    
-        :return: Liste gruppierter Segmentinformationen.
-        """
         groups: List[Dict[str, Any]] = []
         for info, seg in zip(seg_infos, segments):
             reasons: List[str] = []
@@ -468,13 +389,15 @@ def home() -> str:
 def parse_gpx() -> Any:
     """
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
-    
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
-    if "file" not in request.files:
+    # Verwende get() und prüfe zusätzlich, ob ein Dateiname vorhanden ist
+    file = request.files.get("file")
+    if file is None or file.filename == "":
         return jsonify({"error": "Keine Datei empfangen"}), 400
+
     try:
-        gpx = gpxpy.parse(request.files["file"].stream)
+        gpx = gpxpy.parse(file.stream)
     except Exception as e:
         logger.error("Fehler beim Parsen der GPX-Datei: %s", e)
         return jsonify({"error": "Ungültige GPX-Datei"}), 400
@@ -499,7 +422,6 @@ def parse_gpx() -> Any:
 def chunk_upload() -> Any:
     """
     Teilt eine Liste von Koordinaten in kleinere JSON-Chunks und speichert diese.
-    
     :return: JSON mit einer Bestätigung und der Liste der gespeicherten Chunk-Dateinamen.
     """
     data: Dict[str, Any] = request.json or {}
@@ -526,7 +448,6 @@ def chunk_upload() -> Any:
 def serve_openapi() -> Any:
     """
     Stellt die OpenAPI-Spezifikation im YAML-Format bereit.
-    
     :return: Die YAML-Datei oder eine Fehlermeldung, falls sie nicht gefunden wurde.
     """
     try:
