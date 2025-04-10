@@ -259,24 +259,31 @@ def heatmap_quick() -> Any:
     :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
     """
     data: Dict[str, Any] = request.json or {}
+
+    # Validierung der Koordinaten
     coords: Any = data.get("coordinates", [])
     if not is_valid_coordinates(coords):
         return jsonify({"error": "Keine gültigen Koordinaten empfangen"}), 400
 
+    # Prüfe, ob 'start_time' vorhanden ist und korrekt formatiert werden kann
+    start_time: Optional[str] = data.get("start_time")
+    if not start_time:
+        return jsonify({"error": "Fehlender 'start_time'-Parameter"}), 400
+
+    try:
+        dt: datetime = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    except ValueError as ve:
+        logger.warning("Ungültiges Datum-Format: %s", ve)
+        return jsonify({"error": "Ungültiges 'start_time'-Format. Erwartet ISO‑8601."}), 400
+    except Exception as e:
+        logger.error("Unbekannter Fehler beim Parsen von 'start_time': %s", e)
+        return jsonify({"error": "Fehler beim Verarbeiten von 'start_time'."}), 400
+
+    # Bestimme, ob es Nacht ist
+    nighttime: bool = is_nighttime_at(dt, coords[0][0], coords[0][1])
+
     # Segmentierung der Strecke
     segments = segmentize(coords, MIN_SEGMENT_LENGTH_KM)
-
-    # Datum/Uhrzeit parsen und prüfen, ob Nacht ist
-    try:
-        start_time: str = data.get("start_time", "")
-        dt: datetime = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        nighttime: bool = is_nighttime_at(dt, coords[0][0], coords[0][1])
-    except ValueError as ve:
-        logger.warning("Datumskonvertierungsfehler: %s", ve)
-        nighttime = False
-    except Exception as e:
-        logger.error("Unbekannter Fehler beim Parsen der Startzeit: %s", e)
-        nighttime = False
 
     seg_infos: List[Dict[str, Any]] = []
     all_locations: List[Tuple[float, float]] = []
