@@ -3,10 +3,10 @@ info:
   title: CycleDoc Heatmap API
   version: "1.0"
   description: >
-    Diese API analysiert GPX-Daten, segmentiert die Strecke, berechnet Risiken auf Basis von 
-    Wetter, Kurven, Straßenoberfläche etc., erstellt interaktive Karten mit Farbvisualisierung 
-    und einer intelligenten, clusterbasierten Sanitäter-Logik und liefert die Ergebnisse als 
-    strukturierte JSON-Risikoanalyse.
+    Diese API analysiert GPX-Daten, segmentiert die Strecke und berechnet Risiken auf Basis von 
+    Wetter, Kurven, Straßenoberfläche etc. Es werden interaktive Karten mit Farbvisualisierung erstellt, 
+    und mittels einer intelligenten, clusterbasierten Sanitäter-Logik (repräsentativer Marker im Rennmodus, 
+    Markierung aller riskanten Segmente bei Privattouren) werden potenziell gefährliche Abschnitte hervorgehoben.
 servers:
   - url: https://gpx-heatmap-api.onrender.com
 
@@ -29,7 +29,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/HeatmapResponse'
         '400':
-          description: Ungültige oder fehlende Koordinaten.
+          description: Ungültige oder fehlende Eingabedaten (z. B. Koordinaten oder start_time).
         '500':
           description: Interner Serverfehler.
 
@@ -128,8 +128,8 @@ components:
         coordinates:
           type: array
           description: >
-            Array von Koordinaten. Jede Koordinate ist ein Array, das mindestens Latitude, Longitude 
-            und optional Elevation enthält.
+            Array von Koordinaten. Jede Koordinate ist ein Array, das mindestens Latitude und Longitude 
+            (und optional Elevation) enthält.
           items:
             type: array
             items:
@@ -149,7 +149,7 @@ components:
           example: 42
         geschlecht:
           type: string
-          description: Geschlecht des Fahrers (z. B. "m" oder "w").
+          description: Geschlecht des Fahrers (z. B. "m" oder "w").
           example: "m"
         massenstart:
           type: boolean
@@ -165,20 +165,21 @@ components:
           example: false
         material:
           type: string
-          description: Material des Fahrrads (z. B. "carbon", "aluminium").
+          description: Material des Fahrrads (z. B. "carbon", "aluminium").
           example: "aluminium"
         rennen_art:
           type: string
-          description: Art des Rennens, z. B. "downhill", "freeride", "rennen".
+          description: Art des Rennens, z. B. "downhill", "freeride", "rennen".
           example: "downhill"
         start_time:
           type: string
           format: date-time
-          description: ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde.
+          description: >
+            ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde. Dieses Feld ist verpflichtend.
           example: "2025-04-09T07:00:00Z"
         wetter_override:
           type: object
-          description: Optionale Wetterdaten, die die Echtzeitwetterinformationen überschreiben.
+          description: Optionale Wetterdaten, die Echtzeitwetterinformationen überschreiben.
           properties:
             temperature:
               type: number
@@ -219,7 +220,7 @@ components:
           example: 15.3
         segments:
           type: array
-          description: Liste der analysierten Segmente.
+          description: Liste der analysierten Segmente inkl. Risikobewertung, Verletzungsprognose und Sanitäter-Logik.
           items:
             type: object
             properties:
@@ -246,7 +247,7 @@ components:
                 example: true
               terrain:
                 type: string
-                description: Gibt das Terrain an ("Anstieg", "Abfahrt", "Flach").
+                description: Terrain des Segments ("Anstieg", "Abfahrt", "Flach").
                 example: "Anstieg"
               weather:
                 type: object
@@ -267,11 +268,11 @@ components:
                   condition: "klar"
               street_surface:
                 type: string
-                description: Ermittelte Straßenoberfläche (z. B. asphalt, cobblestone, gravel).
+                description: Ermittelte Straßenoberfläche (z. B. asphalt, cobblestone, gravel).
                 example: "asphalt"
               nighttime:
                 type: boolean
-                description: True, wenn das Segment in der Nacht gefahren wurde.
+                description: Gibt an, ob das Segment in der Nacht gefahren wurde.
                 example: false
               risk:
                 type: integer
@@ -285,5 +286,5 @@ components:
                 example: ["Abschürfungen", "Prellungen"]
               sani_needed:
                 type: boolean
-                description: Flag, das angibt, ob basierend auf der erweiterten (clusterbasierten) Risikoanalyse ein Saniposten empfohlen wird.
+                description: Flag, das angibt, ob basierend auf der clusterbasierten Risikoanalyse ein Saniposten empfohlen wird.
                 example: true
