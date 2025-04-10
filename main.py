@@ -188,9 +188,41 @@ def typical_injuries(risk: int, art: str) -> List[str]:
 def heatmap_quick() -> Any:
     """
     Erzeugt eine interaktive Heatmap basierend auf den übergebenen Koordinaten und Parametern.
+    Unterstützt sowohl JSON-Requests als auch den Upload einer GPX-Datei.
+    
+    Erwartet:
+     - Entweder einen JSON-Body mit mindestens "coordinates" und "start_time"
+       oder eine GPX-Datei im Feld "file" (multipart/form-data). Bei GPX-Datei wird der
+       JSON-Body automatisch mit den extrahierten Koordinaten befüllt.
+    
     :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
     """
-    data: Dict[str, Any] = request.json or {}
+    data: Dict[str, Any] = {}
+
+    # Prüfe, ob ein Datei-Upload vorliegt (GPX-Datei)
+    if "file" in request.files:
+        file = request.files.get("file")
+        if file is None or file.filename == "":
+            return jsonify({"error": "Keine Datei empfangen"}), 400
+        try:
+            gpx = gpxpy.parse(file.stream)
+            coords = []
+            for track in gpx.tracks:
+                for segment in track.segments:
+                    for point in segment.points:
+                        coords.append([point.latitude, point.longitude, point.elevation])
+            data["coordinates"] = coords
+        except Exception as e:
+            logger.error("Fehler beim Parsen der GPX-Datei in heatmap_quick: %s", e)
+            return jsonify({"error": "Ungültige GPX-Datei"}), 400
+        # Zusätzlich: Lies optionale Parameter aus dem Form-Data (sofern vorhanden)
+        # Du kannst hier z.B. request.form.get("start_time") etc. einbauen,
+        # falls du den Test über ein Formular durchführen möchtest.
+        if "start_time" in request.form:
+            data["start_time"] = request.form["start_time"]
+    else:
+        # Andernfalls erwarten wir einen JSON-Body
+        data = request.json or {}
 
     # Validierung der Koordinaten
     coords: Any = data.get("coordinates", [])
@@ -266,14 +298,11 @@ def heatmap_quick() -> Any:
         })
         all_locations.extend([(p[0], p[1]) for p in seg])
 
-    # --- Optimierte Sani-Logik: Clusterbildung und Marker-Platzierung in einem Durchlauf ---
+    # --- Optimierte Sani-Logik: Clusterbildung und Marker-Platzierung ---
     race_mode = data.get("rennen_art", "").lower() in ["rennen", "road", "downhill", "freeride", "mtb"]
     min_gap = 5  # Mindestabstand zwischen markierten Clustern im Rennmodus
 
-    # Schritt 1: Alle Indizes sammeln, bei denen das Risiko >= 3 ist
     risk_indices = [i for i, info in enumerate(seg_infos) if info.get("risk", 0) >= 3]
-
-    # Schritt 2: Gruppiere zusammenhängende Indizes in Cluster
     clusters = []
     current_cluster = []
     for idx in risk_indices:
@@ -285,9 +314,7 @@ def heatmap_quick() -> Any:
     if current_cluster:
         clusters.append(current_cluster)
 
-    # Schritt 3: Marker-Platzierung
-    last_sani_index = -min_gap  # Initialwert, sodass das erste Cluster sofort ausgewertet wird
-
+    last_sani_index = -min_gap
     for cluster in clusters:
         if not cluster:
             continue
@@ -391,7 +418,6 @@ def parse_gpx() -> Any:
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
-    # Verwende get() und prüfe zusätzlich, ob ein Dateiname vorhanden ist
     file = request.files.get("file")
     if file is None or file.filename == "":
         return jsonify({"error": "Keine Datei empfangen"}), 400
