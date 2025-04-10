@@ -30,8 +30,13 @@ from astral import LocationInfo
 from astral.sun import sun
 
 # --- Logging und Konfiguration ---
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+# Log to file handler
+file_handler = logging.FileHandler("app.log")
+file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
+logger.addHandler(file_handler)
 
 # Erforderliche Verzeichnisse erstellen
 os.makedirs("chunks", exist_ok=True)
@@ -55,7 +60,7 @@ MIN_SEGMENT_LENGTH_KM: float = 0.005
 def cached_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
     """
     Berechnet die geodätische Entfernung (in km) zwischen zwei Punkten.
-
+    
     :param p1: Tuple (lat, lon) des ersten Punktes.
     :param p2: Tuple (lat, lon) des zweiten Punktes.
     :return: Entfernung in Kilometern.
@@ -65,7 +70,7 @@ def cached_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
 def bearing(a: List[float], b: List[float]) -> float:
     """
     Berechnet den Richtungswinkel von Punkt a zu Punkt b.
-
+    
     :param a: Liste [lat, lon, ...] des ersten Punktes.
     :param b: Liste [lat, lon, ...] des zweiten Punktes.
     :return: Winkel in Grad (0-360).
@@ -79,7 +84,7 @@ def bearing(a: List[float], b: List[float]) -> float:
 def angle_between(b1: float, b2: float) -> float:
     """
     Berechnet den minimalen Unterschied zwischen zwei Winkeln.
-
+    
     :param b1: Erster Winkel (in Grad).
     :param b2: Zweiter Winkel (in Grad).
     :return: Minimaler Winkelunterschied.
@@ -90,7 +95,7 @@ def detect_sharp_curve(pts: List[List[float]], t: float = 60) -> bool:
     """
     Prüft, ob innerhalb einer Liste von Punkten ein scharfer Kurvenverlauf 
     (Winkelabweichung >= t°) existiert.
-
+    
     :param pts: Liste von Punkten.
     :param t: Schwellwert in Grad (Standard 60°).
     :return: True, wenn ein scharfer Kurvenverlauf festgestellt wird, sonst False.
@@ -103,7 +108,7 @@ def detect_sharp_curve(pts: List[List[float]], t: float = 60) -> bool:
 def calc_slope(points: List[List[float]]) -> float:
     """
     Berechnet die prozentuale Steigung zwischen dem ersten und letzten Punkt.
-
+    
     :param points: Liste von Punkten; jeder Punkt enthält mindestens [lat, lon, elevation].
     :return: Steigung in Prozent.
     """
@@ -118,7 +123,7 @@ def calc_slope(points: List[List[float]]) -> float:
 def get_street_surface(lat: float, lon: float) -> str:
     """
     Bestimmt zufällig eine Straßenoberfläche basierend auf den Koordinaten.
-
+    
     :param lat: Breitengrad.
     :param lon: Längengrad.
     :return: Eine von "asphalt", "cobblestone", "gravel".
@@ -130,7 +135,7 @@ def get_street_surface(lat: float, lon: float) -> str:
 def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
     """
     Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist.
-
+    
     :param dt: Datum und Uhrzeit.
     :param lat: Breitengrad.
     :param lon: Längengrad.
@@ -143,7 +148,7 @@ def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
 def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM) -> List[List[List[float]]]:
     """
     Teilt eine Liste von Koordinaten in Segmente auf, die mindestens eine bestimmte Länge haben.
-
+    
     :param coords: Liste von Koordinaten.
     :param len_km: Mindestsegmentlänge in Kilometern.
     :return: Liste von Segmenten, wobei jedes Segment eine Liste von Punkten darstellt.
@@ -169,12 +174,28 @@ def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM)
         segments.append(current_segment)
     return segments
 
+def is_valid_coordinates(coords: Any) -> bool:
+    """
+    Überprüft, ob `coords` eine Liste ist, die mindestens einen Punkt (als Liste mit mindestens zwei numerischen Werten) enthält.
+    
+    :param coords: Die zu validierenden Koordinaten.
+    :return: True, wenn gültig, sonst False.
+    """
+    if not isinstance(coords, list) or not coords:
+        return False
+    for point in coords:
+        if not isinstance(point, list) or len(point) < 2:
+            return False
+        if not all(isinstance(x, (int, float)) for x in point[:2]):
+            return False
+    return True
+
 def calc_risk(temp: float, wind: float, precip: float, slope: float,
               typ: str, n: int, **opt: Any) -> int:
     """
     Berechnet das Risiko der Route anhand verschiedener Parameter (Wetter, Steigung, Fahrerprofil etc.).
     Das Risiko wird auf einen Wert zwischen 1 und 5 begrenzt.
-
+    
     :param temp: Temperatur in °C.
     :param wind: Windgeschwindigkeit.
     :param precip: Niederschlagsmenge.
@@ -214,7 +235,7 @@ def calc_risk(temp: float, wind: float, precip: float, slope: float,
 def typical_injuries(risk: int, art: str) -> List[str]:
     """
     Gibt typische Verletzungen zurück, basierend auf dem Risiko und der Rennart.
-
+    
     :param risk: Risikowert (1-5).
     :param art: Rennart (z. B. "downhill", "freeride").
     :return: Liste von Verletzungsbeschreibungen.
@@ -234,12 +255,12 @@ def typical_injuries(risk: int, art: str) -> List[str]:
 def heatmap_quick() -> Any:
     """
     Erzeugt eine interaktive Heatmap basierend auf den übergebenen Koordinaten und Parametern.
-
+    
     :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
     """
     data: Dict[str, Any] = request.json or {}
-    coords: List[List[float]] = data.get("coordinates", [])
-    if not isinstance(coords, list) or not coords:
+    coords: Any = data.get("coordinates", [])
+    if not is_valid_coordinates(coords):
         return jsonify({"error": "Keine gültigen Koordinaten empfangen"}), 400
 
     # Segmentierung der Strecke
@@ -366,7 +387,7 @@ def heatmap_quick() -> Any:
         """
         Gruppiert Segmente anhand eines Signatur-Tupels (Risikowert und Gründe)
         zur besseren visuellen Darstellung.
-
+    
         :return: Liste gruppierter Segmentinformationen.
         """
         groups: List[Dict[str, Any]] = []
@@ -440,7 +461,7 @@ def home() -> str:
 def parse_gpx() -> Any:
     """
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
-
+    
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
     if "file" not in request.files:
@@ -471,7 +492,7 @@ def parse_gpx() -> Any:
 def chunk_upload() -> Any:
     """
     Teilt eine Liste von Koordinaten in kleinere JSON-Chunks und speichert diese.
-
+    
     :return: JSON mit einer Bestätigung und der Liste der gespeicherten Chunk-Dateinamen.
     """
     data: Dict[str, Any] = request.json or {}
@@ -498,7 +519,7 @@ def chunk_upload() -> Any:
 def serve_openapi() -> Any:
     """
     Stellt die OpenAPI-Spezifikation im YAML-Format bereit.
-
+    
     :return: Die YAML-Datei oder eine Fehlermeldung, falls sie nicht gefunden wurde.
     """
     try:
