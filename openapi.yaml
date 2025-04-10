@@ -7,7 +7,6 @@ info:
     Wetter, Kurven, Straßenoberfläche etc., erstellt interaktive Karten mit Farbvisualisierung 
     und einer intelligenten, clusterbasierten Sanitäter-Logik und liefert die Ergebnisse als 
     strukturierte JSON-Risikoanalyse.
-
 servers:
   - url: https://gpx-heatmap-api.onrender.com
 
@@ -122,6 +121,9 @@ components:
   schemas:
     HeatmapRequest:
       type: object
+      required:
+        - coordinates
+        - start_time
       properties:
         coordinates:
           type: array
@@ -132,37 +134,48 @@ components:
             type: array
             items:
               type: number
+          example: [[51.242, 6.830, 42.0], [51.243, 6.831, 42.1]]
         fahrer_typ:
           type: string
           description: Fahrertyp, z. B. "hobby" oder "profi".
+          example: "hobby"
         anzahl:
           type: integer
           description: Anzahl der Teilnehmer.
+          example: 1
         alter:
           type: integer
           description: Alter des Fahrers bzw. der Fahrer.
+          example: 42
         geschlecht:
           type: string
-          description: Geschlecht des Fahrers (z. B. "m", "w").
+          description: Geschlecht des Fahrers (z. B. "m" oder "w").
+          example: "m"
         massenstart:
           type: boolean
           description: Gibt an, ob es sich um einen Massenstart handelt.
+          example: false
         overuse_knee:
           type: boolean
-          description: Gibt an, ob Überbeanspruchung der Knie besteht.
+          description: Gibt an, ob eine Überbeanspruchung der Knie vorliegt.
+          example: false
         rueckenschmerzen:
           type: boolean
           description: Gibt an, ob Rückenbeschwerden vorliegen.
+          example: false
         material:
           type: string
-          description: Verwendetes Material des Fahrrads (z. B. "carbon", "aluminium").
+          description: Material des Fahrrads (z. B. "carbon", "aluminium").
+          example: "aluminium"
         rennen_art:
           type: string
           description: Art des Rennens, z. B. "downhill", "freeride", "rennen".
+          example: "downhill"
         start_time:
           type: string
           format: date-time
           description: ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde.
+          example: "2025-04-09T07:00:00Z"
         wetter_override:
           type: object
           description: Optionale Wetterdaten, die die Echtzeitwetterinformationen überschreiben.
@@ -175,6 +188,11 @@ components:
               type: number
             condition:
               type: string
+          example:
+            temperature: 10
+            wind_speed: 12
+            precip: 0
+            condition: "klar"
         schutzausruestung:
           type: object
           description: Angaben zur getragenen Schutzausrüstung.
@@ -183,6 +201,9 @@ components:
               type: boolean
             protektoren:
               type: boolean
+          example:
+            helm: true
+            protektoren: false
 
     HeatmapResponse:
       type: object
@@ -191,9 +212,11 @@ components:
           type: string
           format: uri
           description: URL der generierten Heatmap im statischen Verzeichnis.
+          example: "https://gpx-heatmap-api.onrender.com/static/heatmap_20250409070000.html"
         distance_km:
           type: number
           description: Gesamtstrecke in Kilometern.
+          example: 15.3
         segments:
           type: array
           description: Liste der analysierten Segmente.
@@ -203,6 +226,7 @@ components:
               segment_index:
                 type: integer
                 description: Laufende Nummer des Segments.
+                example: 1
               center:
                 type: object
                 description: Zentraler Punkt des Segments.
@@ -211,15 +235,19 @@ components:
                     type: number
                   lon:
                     type: number
+                example: {"lat": 51.243, "lon": 6.832}
               slope:
                 type: number
                 description: Steigung des Segments in Prozent.
+                example: 3.5
               sharp_curve:
                 type: boolean
                 description: Gibt an, ob das Segment eine scharfe Kurve enthält.
+                example: true
               terrain:
                 type: string
                 description: Gibt das Terrain an ("Anstieg", "Abfahrt", "Flach").
+                example: "Anstieg"
               weather:
                 type: object
                 description: Wetterdaten, die für die Segmentanalyse verwendet wurden.
@@ -232,20 +260,30 @@ components:
                     type: number
                   condition:
                     type: string
+                example:
+                  temperature: 10
+                  wind_speed: 12
+                  precip: 0
+                  condition: "klar"
               street_surface:
                 type: string
                 description: Ermittelte Straßenoberfläche (z. B. asphalt, cobblestone, gravel).
+                example: "asphalt"
               nighttime:
                 type: boolean
                 description: True, wenn das Segment in der Nacht gefahren wurde.
+                example: false
               risk:
                 type: integer
                 description: Berechnetes Risiko des Segments (Wert zwischen 1 und 5).
+                example: 3
               injuries:
                 type: array
                 description: Liste typischer Verletzungsbilder für das Segment.
                 items:
                   type: string
+                example: ["Abschürfungen", "Prellungen"]
               sani_needed:
                 type: boolean
                 description: Flag, das angibt, ob basierend auf der erweiterten (clusterbasierten) Risikoanalyse ein Saniposten empfohlen wird.
+                example: true
