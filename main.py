@@ -397,12 +397,13 @@ def parse_gpx() -> Any:
         if not data:
             logger.error("Keine Datei empfangen, weder in request.files noch im Body.")
             return jsonify({"error": "Keine Datei empfangen"}), 400
+        logger.info("GPX-Daten als Raw-Body empfangen, Länge: %d Bytes", len(data))
         file = BytesIO(data)
-        logger.info("GPX-Daten wurden als Raw-Body empfangen und in BytesIO konvertiert.")
+        # Fallback-Filename setzen
+        file.filename = "uploaded.gpx"
     else:
         logger.info("GPX-Datei empfangen: %s", file.filename)
 
-    # Sicherstellen, dass der Stream an den Anfang zurückgesetzt wird
     try:
         file.seek(0)
     except Exception as e:
