@@ -21,6 +21,7 @@ import logging
 from datetime import datetime
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
+from io import BytesIO
 
 from flask import Flask, request, jsonify, send_file
 import gpxpy
@@ -188,41 +189,9 @@ def typical_injuries(risk: int, art: str) -> List[str]:
 def heatmap_quick() -> Any:
     """
     Erzeugt eine interaktive Heatmap basierend auf den übergebenen Koordinaten und Parametern.
-    Unterstützt sowohl JSON-Requests als auch den Upload einer GPX-Datei.
-    
-    Erwartet:
-     - Entweder einen JSON-Body mit mindestens "coordinates" und "start_time"
-       oder eine GPX-Datei im Feld "file" (multipart/form-data). Bei GPX-Datei wird der
-       JSON-Body automatisch mit den extrahierten Koordinaten befüllt.
-    
     :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
     """
-    data: Dict[str, Any] = {}
-
-    # Prüfe, ob ein Datei-Upload vorliegt (GPX-Datei)
-    if "file" in request.files:
-        file = request.files.get("file")
-        if file is None or file.filename == "":
-            return jsonify({"error": "Keine Datei empfangen"}), 400
-        try:
-            gpx = gpxpy.parse(file.stream)
-            coords = []
-            for track in gpx.tracks:
-                for segment in track.segments:
-                    for point in segment.points:
-                        coords.append([point.latitude, point.longitude, point.elevation])
-            data["coordinates"] = coords
-        except Exception as e:
-            logger.error("Fehler beim Parsen der GPX-Datei in heatmap_quick: %s", e)
-            return jsonify({"error": "Ungültige GPX-Datei"}), 400
-        # Zusätzlich: Lies optionale Parameter aus dem Form-Data (sofern vorhanden)
-        # Du kannst hier z.B. request.form.get("start_time") etc. einbauen,
-        # falls du den Test über ein Formular durchführen möchtest.
-        if "start_time" in request.form:
-            data["start_time"] = request.form["start_time"]
-    else:
-        # Andernfalls erwarten wir einen JSON-Body
-        data = request.json or {}
+    data: Dict[str, Any] = request.json or {}
 
     # Validierung der Koordinaten
     coords: Any = data.get("coordinates", [])
@@ -303,6 +272,7 @@ def heatmap_quick() -> Any:
     min_gap = 5  # Mindestabstand zwischen markierten Clustern im Rennmodus
 
     risk_indices = [i for i, info in enumerate(seg_infos) if info.get("risk", 0) >= 3]
+
     clusters = []
     current_cluster = []
     for idx in risk_indices:
@@ -377,7 +347,8 @@ def heatmap_quick() -> Any:
         risk_val, reasons = grp.get("signature")
         reason_text = ", ".join(reasons)
         popup_text = f"🚩 {len(grp['segments'])}× Risk {risk_val}" + (f": {reason_text}" if reasons else "")
-        folium.PolyLine([(p[0], p[1]) for p in all_points], color=color_by_risk(risk_val), weight=6, popup=popup_text).add_to(m)
+        folium.PolyLine([(p[0], p[1]) for p in all_points],
+                        color=color_by_risk(risk_val), weight=6, popup=popup_text).add_to(m)
         if grp.get("sani"):
             folium.Marker(
                 [mid_center["lat"], mid_center["lon"]],
@@ -418,12 +389,27 @@ def parse_gpx() -> Any:
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
+    # Versuche zunächst, die Datei über request.files auszulesen
     file = request.files.get("file")
     if file is None or file.filename == "":
-        return jsonify({"error": "Keine Datei empfangen"}), 400
+        # Fallback: Versuche, den Raw-Body zu lesen
+        data = request.get_data()
+        if not data:
+            logger.error("Keine Datei empfangen, weder in request.files noch im Body.")
+            return jsonify({"error": "Keine Datei empfangen"}), 400
+        file = BytesIO(data)
+        logger.info("GPX-Daten wurden als Raw-Body empfangen und in BytesIO konvertiert.")
+    else:
+        logger.info("GPX-Datei empfangen: %s", file.filename)
+
+    # Sicherstellen, dass der Stream an den Anfang zurückgesetzt wird
+    try:
+        file.seek(0)
+    except Exception as e:
+        logger.warning("Dateistream konnte nicht zurückgesetzt werden: %s", e)
 
     try:
-        gpx = gpxpy.parse(file.stream)
+        gpx = gpxpy.parse(file)
     except Exception as e:
         logger.error("Fehler beim Parsen der GPX-Datei: %s", e)
         return jsonify({"error": "Ungültige GPX-Datei"}), 400
@@ -473,7 +459,7 @@ def chunk_upload() -> Any:
 @app.route("/openapi.yaml", methods=["GET"])
 def serve_openapi() -> Any:
     """
-    Stellt die OpenAPI-Spezifikation im YAML-Format bereit.
+    Stellt die OpenAPI‑Spezifikation im YAML-Format bereit.
     :return: Die YAML-Datei oder eine Fehlermeldung, falls sie nicht gefunden wurde.
     """
     try:
