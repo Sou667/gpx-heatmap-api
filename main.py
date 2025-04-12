@@ -34,7 +34,7 @@ from astral.sun import sun
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# Log to file handler
+# Log to file handler (optional, falls du eine Logdatei möchtest)
 file_handler = logging.FileHandler("app.log")
 file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
 logger.addHandler(file_handler)
@@ -263,7 +263,7 @@ def heatmap_quick() -> Any:
             "street_surface": surface,
             "risk": risk,
             "injuries": injuries,
-            "sani_needed": False  # wird nachher anhand der Sani-Logik gesetzt
+            "sani_needed": False  # wird später anhand der Sani-Logik gesetzt
         })
         all_locations.extend([(p[0], p[1]) for p in seg])
 
@@ -304,6 +304,7 @@ def heatmap_quick() -> Any:
         logger.error("Fehler beim Erstellen der Karte: %s", e)
         return jsonify({"error": "Fehler bei der Kartenerstellung"}), 500
 
+    # Gesamte Route als Polyline
     folium.PolyLine([(p[0], p[1]) for p in coords], color="blue", weight=3, opacity=0.6).add_to(m)
 
     def color_by_risk(risk_val: int) -> str:
@@ -389,7 +390,7 @@ def parse_gpx() -> Any:
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
-    # Versuche zunächst, die Datei über request.files auszulesen
+    # Versuche zunächst die Datei aus request.files zu holen
     file = request.files.get("file")
     if file is None or file.filename == "":
         # Fallback: Versuche, den Raw-Body zu lesen
@@ -399,7 +400,7 @@ def parse_gpx() -> Any:
             return jsonify({"error": "Keine Datei empfangen"}), 400
         logger.info("GPX-Daten als Raw-Body empfangen, Länge: %d Bytes", len(data))
         file = BytesIO(data)
-        # Fallback-Filename setzen
+        # Einen Fallback-Namen setzen
         file.filename = "uploaded.gpx"
     else:
         logger.info("GPX-Datei empfangen: %s", file.filename)
