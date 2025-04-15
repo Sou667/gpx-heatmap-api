@@ -69,9 +69,16 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: >
-                    Die zu verarbeitende GPX-Datei. Falls diese Datei nicht über den "file"‑Key
-                    übermittelt wird, versucht der Server, den Raw‑Body zu verarbeiten.
+                  description: Die zu verarbeitende GPX-Datei.
+              required: [file]
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_base64:
+                  type: string
+                  description: Base64-kodierte GPX-Datei.
+              required: [file_base64]
       responses:
         '200':
           description: GPX-Daten erfolgreich geparst.
@@ -91,11 +98,22 @@ paths:
                     type: number
                     description: Gesamtstrecke in Kilometern.
         '400':
-          description: Fehlerhafte oder ungültige GPX-Datei.
+          description: Fehlerhafte oder ungültige Eingabe.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                no_file:
+                  value: { "error": "Keine Datei unter 'file'-Key empfangen" }
+                invalid_base64:
+                  value: { "error": "Ungültiges Base64-Format" }
+                too_small:
+                  value: { "error": "Empfangene Daten zu klein für eine GPX-Datei" }
+                invalid_xml:
+                  value: { "error": "Ungültige XML-Struktur: ..." }
+                no_points:
+                  value: { "error": "GPX-Datei enthält keine Track- oder Routenpunkte" }
 
   /chunk-upload:
     post:
@@ -215,8 +233,7 @@ components:
         start_time:
           type: string
           format: date-time
-          description: >
-            ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde. Dieses Feld ist verpflichtend und sollte in UTC angegeben werden.
+          description: ISO‑8601 Datum/Uhrzeit in UTC (z. B. "2025-04-09T07:00:00Z" oder "2025-04-09T07:00:00+00:00").
           example: "2025-04-09T07:00:00Z"
         wetter_override:
           type: object
