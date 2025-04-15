@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 from io import BytesIO
+import base64
+import xml.etree.ElementTree as ET
 
 from flask import Flask, request, jsonify, send_file
 import gpxpy
@@ -37,7 +39,7 @@ import requests  # Für Wetter-API-Aufrufe
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-# Log to file handler (optional, falls du eine Logdatei möchtest)
+# Log to file handler
 file_handler = logging.FileHandler("app.log")
 file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
 logger.addHandler(file_handler)
@@ -101,16 +103,21 @@ def get_street_surface(lat: float, lon: float) -> str:
     return rng.choice(["asphalt", "cobblestone", "gravel"])
 
 def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
-    """Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist.
-       Falls dt naïv ist, wird es in UTC konvertiert, sodass der Vergleich mit den
-       von astral zurückgegebenen (aware) Datumswerten funktioniert.
-    """
+    """Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist."""
+    # Stelle sicher, dass dt zeitzonenbewusst ist
     if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    loc = LocationInfo("loc", "", "UTC", lat, lon)
-    # Erzwinge, dass die Sun-Funktion ebenfalls UTC verwendet
-    s = sun(loc.observer, date=dt.date(), tzinfo=timezone.utc)
-    return dt < s["sunrise"] or dt > s["sunset"]
+        logger.debug("dt war naiv, konvertiert zu UTC: %s", dt)
+    try:
+        loc = LocationInfo("loc", "", "UTC", lat, lon)
+        s = sun(loc.observer, date=dt.date(), tzinfo=timezone.utc)
+        sunrise = s["sunrise"]
+        sunset = s["sunset"]
+        logger.debug("Vergleiche dt=%s, sunrise=%s, sunset=%s", dt, sunrise, sunset)
+        return dt < sunrise or dt > sunset
+    except Exception as e:
+        logger.error("Fehler in is_nighttime_at: %s", e)
+        return False  # Fallback: Angenommen, es ist Tag
 
 def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM) -> List[List[List[float]]]:
     """Teilt eine Liste von Koordinaten in Segmente auf, die mindestens eine bestimmte Länge haben."""
@@ -244,9 +251,12 @@ def heatmap_quick() -> Any:
 
     try:
         dt: datetime = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+            logger.warning("start_time war naiv, konvertiert zu UTC: %s", dt)
     except ValueError as ve:
         logger.warning("Ungültiges Datum-Format: %s", ve)
-        return jsonify({"error": "Ungültiges 'start_time'-Format. Erwartet ISO‑8601."}), 400
+        return jsonify({"error": "Ungültiges 'start_time'-Format. Erwartet ISO-8601 (z. B. '2025-04-09T07:00:00Z')."}), 400
     except Exception as e:
         logger.error("Unbekannter Fehler beim Parsen von 'start_time': %s", e)
         return jsonify({"error": "Fehler beim Verarbeiten von 'start_time'."}), 400
@@ -529,43 +539,92 @@ def parse_gpx() -> Any:
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
-    file = request.files.get("file")
-    if file is None or file.filename == "":
+    file = None
+    content_type = request.content_type or ""
+    logger.info("Content-Type der Anfrage: %s", content_type)
+
+    # 1. Prüfe multipart/form-data
+    if content_type.startswith("multipart/form-data"):
+        file = request.files.get("file")
+        if file is None or file.filename == "":
+            logger.error("Kein 'file'-Key in multipart/form-data")
+            return jsonify({"error": "Keine Datei unter 'file'-Key empfangen"}), 400
+        logger.info("GPX-Datei empfangen: %s, Größe: %d Bytes", file.filename, file.seek(0, 2))
+        file.seek(0)
+
+    # 2. Prüfe JSON mit Base64
+    elif content_type.startswith("application/json"):
+        data = request.get_json(silent=True) or {}
+        base64_str = data.get("file_base64")
+        if not base64_str:
+            logger.error("Kein 'file_base64'-Feld in JSON")
+            return jsonify({"error": "Kein 'file_base64'-Feld in JSON"}), 400
+        try:
+            file_data = base64.b64decode(base64_str)
+            file = BytesIO(file_data)
+            file.filename = "uploaded.gpx"
+            logger.info("Base64-Datei dekodiert, Größe: %d Bytes", len(file_data))
+        except base64.binascii.Error:
+            logger.error("Ungültiges Base64-Format")
+            return jsonify({"error": "Ungültiges Base64-Format"}), 400
+
+    # 3. Fallback: Raw-Body
+    else:
         data = request.get_data()
         if not data:
-            logger.error("Keine Datei empfangen, weder in request.files noch im Body.")
-            return jsonify({"error": "Keine Datei empfangen"}), 400
-        logger.info("GPX-Daten als Raw-Body empfangen, Länge: %d Bytes", len(data))
+            logger.error("Kein Daten-Body empfangen")
+            return jsonify({"error": "Kein Daten-Body empfangen"}), 400
+        logger.info("Raw-Body empfangen, Länge: %d Bytes", len(data))
+        if len(data) < 100:  # Mindestgröße für eine GPX-Datei
+            logger.error("Raw-Body zu klein für eine GPX-Datei")
+            return jsonify({"error": "Empfangene Daten zu klein für eine GPX-Datei"}), 400
         file = BytesIO(data)
         file.filename = "uploaded.gpx"
-    else:
-        logger.info("GPX-Datei empfangen: %s", file.filename)
 
+    # Prüfe XML-Gültigkeit
     try:
         file.seek(0)
-    except Exception as e:
-        logger.warning("Dateistream konnte nicht zurückgesetzt werden: %s", e)
+        ET.parse(file)
+        file.seek(0)
+        logger.info("XML-Struktur ist gültig")
+    except ET.ParseError as e:
+        logger.error("Ungültiges XML: %s", e)
+        return jsonify({"error": f"Ungültige XML-Struktur: {str(e)}"}), 400
 
+    # Parse GPX
     try:
+        file.seek(0)
         gpx = gpxpy.parse(file)
+        logger.info("GPX-Datei erfolgreich geparst, Tracks: %d", len(gpx.tracks))
     except Exception as e:
         logger.error("Fehler beim Parsen der GPX-Datei: %s", e)
-        return jsonify({"error": "Ungültige GPX-Datei"}), 400
+        return jsonify({"error": f"Ungültige GPX-Datei: {str(e)}"}), 400
 
-    coords: List[List[float]] = []
+    # Extrahiere Koordinaten
+    coords = []
     try:
         for track in gpx.tracks:
             for segment in track.segments:
                 for point in segment.points:
-                    coords.append([point.latitude, point.longitude, point.elevation])
+                    coords.append([point.latitude, point.longitude, point.elevation or 0])
+        if not coords:
+            for route in gpx.routes:
+                for point in route.points:
+                    coords.append([point.latitude, point.longitude, point.elevation or 0])
+        if not coords:
+            logger.warning("Keine Koordinaten gefunden")
+            return jsonify({"error": "GPX-Datei enthält keine Track- oder Routenpunkte"}), 400
+        logger.info("Koordinaten extrahiert: %d Punkte", len(coords))
     except Exception as e:
-        logger.error("Fehler beim Extrahieren der Punkte: %s", e)
-        return jsonify({"error": "Fehler beim Verarbeiten der GPX-Datei"}), 500
+        logger.error("Fehler beim Extrahieren der Koordinaten: %s", e)
+        return jsonify({"error": f"Fehler beim Verarbeiten der GPX-Daten: {str(e)}"}), 500
 
+    # Berechne Distanz
     total_km = sum(
         cached_distance(tuple(coords[i-1][:2]), tuple(coords[i][:2]))
         for i in range(1, len(coords))
     )
+
     return jsonify({"coordinates": coords, "distance_km": round(total_km, 2)})
 
 @app.route("/chunk-upload", methods=["POST"])
