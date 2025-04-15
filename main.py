@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-CycleDoc Heatmap-API – Comprehensive Optimized Version
+CycleDoc Heatmap-API – Comprehensive Optimized Version with Fixes
 
 Diese API verarbeitet GPX-Daten, segmentiert Routen, berechnet diverse Parameter
 (sowie Steigung, Kurven, Wetter etc.) und erstellt eine interaktive Karte mit
-Risiko- und intelligenter Sanitäterlogik. Der Code ist hoch performant, robust
-und dokumentiert mittels umfangreicher Type Hints und Docstrings.
+Risiko- und intelligenter Sanitäterlogik. Zusätzlich wird ein detaillierter
+Bericht gemäß den Systemanforderungen generiert.
 
 Hinweis:
 - Für stark asynchrone I/O-Vorgänge (z. B. bei großen Dateischreibvorgängen)
   empfiehlt sich der Einsatz eines Task-Queue-Systems wie Celery.
 - Im produktiven Einsatz sollte der Debug-Modus deaktiviert werden.
+- Für eine genaue Wetterabfrage wird ein externer Wetterdienst (WeatherStack) verwendet.
+  Stelle sicher, dass die Umgebungsvariable WEATHERSTACK_API_KEY gesetzt ist.
 """
 
 import os
@@ -29,6 +31,7 @@ import folium
 from geopy.distance import geodesic
 from astral import LocationInfo
 from astral.sun import sun
+import requests  # Für Wetter-API-Aufrufe
 
 # --- Logging und Konfiguration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -183,13 +186,41 @@ def typical_injuries(risk: int, art: str) -> List[str]:
         base.append("Schwere Rücken-/Organverletzungen" if risk == 5 else "Wirbelsäulenverletzung (selten)")
     return base
 
+def fetch_current_weather(lat: float, lon: float, dt: datetime) -> Dict[str, Any]:
+    """
+    Ruft aktuelle Wetterdaten von WeatherStack ab. Erwartet, dass die Umgebungsvariable
+    WEATHERSTACK_API_KEY gesetzt ist.
+    """
+    api_key = os.getenv("WEATHERSTACK_API_KEY")
+    if not api_key:
+        logger.warning("Keine WEATHERSTACK_API_KEY gefunden, verwende Standardwerte für Wetter.")
+        return DEFAULT_WEATHER
+    url = f"http://api.weatherstack.com/current?access_key={api_key}&query={lat},{lon}"
+    try:
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        if "current" in data:
+            current = data["current"]
+            return {
+                "temperature": current.get("temperature", DEFAULT_WEATHER["temperature"]),
+                "wind_speed": current.get("wind_speed", DEFAULT_WEATHER["wind_speed"]),
+                "precip": current.get("precip", DEFAULT_WEATHER["precip"]),
+                "condition": current.get("weather_descriptions", [DEFAULT_WEATHER["condition"]])[0]
+            }
+        else:
+            logger.warning("Weather API response missing 'current': %s", data)
+            return DEFAULT_WEATHER
+    except Exception as e:
+        logger.error("Fehler beim Abrufen der Wetterdaten: %s", e)
+        return DEFAULT_WEATHER
+
 # --- API Endpoints ---
 
 @app.route("/heatmap-quick", methods=["POST"])
 def heatmap_quick() -> Any:
     """
-    Erzeugt eine interaktive Heatmap basierend auf den übergebenen Koordinaten und Parametern.
-    :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km und Segmentinformationen.
+    Erzeugt eine interaktive Heatmap sowie einen detaillierten Bericht basierend auf den übergebenen Koordinaten und Parametern.
+    :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km, Segmentinformationen und einem detaillierten Bericht.
     """
     data: Dict[str, Any] = request.json or {}
 
@@ -212,8 +243,18 @@ def heatmap_quick() -> Any:
         logger.error("Unbekannter Fehler beim Parsen von 'start_time': %s", e)
         return jsonify({"error": "Fehler beim Verarbeiten von 'start_time'."}), 400
 
-    # Bestimme, ob es Nacht ist
-    nighttime: bool = is_nighttime_at(dt, coords[0][0], coords[0][1])
+    # Bestimme einen repräsentativen Punkt aus den Koordinaten (Mittelpunkt)
+    rep_index = len(coords) // 2
+    rep_lat, rep_lon = coords[rep_index][0], coords[rep_index][1]
+
+    # Bestimme, ob es Nacht ist anhand des repräsentativen Punkts
+    nighttime: bool = is_nighttime_at(dt, rep_lat, rep_lon)
+
+    # Wetterdaten: Verwende Override, falls vorhanden, sonst aktuelle Wetterdaten abrufen
+    if data.get("wetter_override"):
+        live_weather = data.get("wetter_override")
+    else:
+        live_weather = fetch_current_weather(rep_lat, rep_lon, dt)
 
     # Segmentierung der Strecke
     segments = segmentize(coords, MIN_SEGMENT_LENGTH_KM)
@@ -230,11 +271,10 @@ def heatmap_quick() -> Any:
         slope = calc_slope(seg)
         curve = detect_sharp_curve(seg)
         surface = get_street_surface(lat, lon)
-        weather: Dict[str, Any] = data.get("wetter_override", {}) or DEFAULT_WEATHER
         risk = calc_risk(
-            weather.get("temperature", DEFAULT_WEATHER["temperature"]),
-            weather.get("wind_speed", DEFAULT_WEATHER["wind_speed"]),
-            weather.get("precip", DEFAULT_WEATHER["precip"]),
+            live_weather.get("temperature", DEFAULT_WEATHER["temperature"]),
+            live_weather.get("wind_speed", DEFAULT_WEATHER["wind_speed"]),
+            live_weather.get("precip", DEFAULT_WEATHER["precip"]),
             slope,
             data.get("fahrer_typ", "hobby"),
             data.get("anzahl", 5),
@@ -258,7 +298,7 @@ def heatmap_quick() -> Any:
             "slope": slope,
             "sharp_curve": curve,
             "terrain": terrain,
-            "weather": weather,
+            "weather": live_weather,
             "nighttime": nighttime,
             "street_surface": surface,
             "risk": risk,
@@ -299,7 +339,7 @@ def heatmap_quick() -> Any:
 
     # --- Karten-Erstellung mit Folium ---
     try:
-        m: folium.Map = folium.Map(location=[coords[0][0], coords[0][1]], zoom_start=13)
+        m: folium.Map = folium.Map(location=[rep_lat, rep_lon], zoom_start=13)
     except Exception as e:
         logger.error("Fehler beim Erstellen der Karte: %s", e)
         return jsonify({"error": "Fehler bei der Kartenerstellung"}), 500
@@ -323,9 +363,9 @@ def heatmap_quick() -> Any:
                 reasons.append("enge Kurve")
             if info.get("street_surface") in ["gravel", "cobblestone"]:
                 reasons.append(f"Untergrund: {info['street_surface']}")
-            if info.get("weather", {}).get("wind_speed", 0) >= 25:
+            if live_weather.get("wind_speed", 0) >= 25:
                 reasons.append("starker Wind")
-            if info.get("weather", {}).get("precip", 0) >= 1:
+            if live_weather.get("precip", 0) >= 1:
                 reasons.append("Regen")
             signature: Tuple[int, Tuple[str, ...]] = (info.get("risk", 1), tuple(sorted(reasons)))
             if not groups or groups[-1].get("signature") != signature:
@@ -344,7 +384,7 @@ def heatmap_quick() -> Any:
     for grp in group_segments():
         all_points: List[List[float]] = [pt for seg in grp["segments"] for pt in seg]
         centers: List[Dict[str, float]] = grp.get("centers", [])
-        mid_center: Dict[str, float] = centers[len(centers) // 2] if centers else {"lat": coords[0][0], "lon": coords[0][1]}
+        mid_center: Dict[str, float] = centers[len(centers) // 2] if centers else {"lat": rep_lat, "lon": rep_lon}
         risk_val, reasons = grp.get("signature")
         reason_text = ", ".join(reasons)
         popup_text = f"🚩 {len(grp['segments'])}× Risk {risk_val}" + (f": {reason_text}" if reasons else "")
@@ -373,10 +413,101 @@ def heatmap_quick() -> Any:
         cached_distance(tuple(coords[i-1][:2]), tuple(coords[i][:2]))
         for i in range(1, len(coords))
     )
+
+    # Berechnung des durchschnittlichen Risikos
+    avg_risk = sum(seg["risk"] for seg in seg_infos) / len(seg_infos) if seg_infos else 0
+
+    # --- Erstellung des detaillierten Berichts ---
+    detailed_report = ""
+    # Abschnitt 0: Streckenlänge
+    detailed_report += "Abschnitt 0: Streckenlänge\n"
+    detailed_report += f"Die Strecke umfasst {round(total_distance, 2)} km.\n\n"
+
+    # Abschnitt 1: Wetterlage
+    detailed_report += "Abschnitt 1: Wetterlage\n"
+    detailed_report += f"Repräsentativer Punkt: (Lat: {rep_lat:.3f}, Lon: {rep_lon:.3f})\n"
+    detailed_report += f"Datum und Uhrzeit: {dt.isoformat()}\n"
+    detailed_report += f"Temperatur: {live_weather.get('temperature', 'N/A')}°C, "
+    detailed_report += f"Wind: {live_weather.get('wind_speed', 'N/A')} km/h, "
+    detailed_report += f"Niederschlag: {live_weather.get('precip', 'N/A')} mm, "
+    detailed_report += f"Bedingung: {live_weather.get('condition', 'N/A')}\n"
+    detailed_report += "Quelle: WeatherStack (sofern über API abgerufen)\n\n"
+
+    # Abschnitt 2: Risikoeinschätzung
+    detailed_report += "Abschnitt 2: Risikoeinschätzung\n"
+    if seg_infos:
+        for seg in seg_infos:
+            seg_index = seg["segment_index"]
+            detailed_report += f"Segment {seg_index}: "
+            details = []
+            details.append(f"Steigung: {seg['slope']}%")
+            details.append(f"Terrain: {seg['terrain']}")
+            if seg['sharp_curve']:
+                details.append("enge Kurve")
+            if seg['street_surface'] in ["gravel", "cobblestone"]:
+                details.append(f"Untergrund: {seg['street_surface']}")
+            if live_weather.get("wind_speed", 0) >= 25:
+                details.append("starker Wind")
+            if live_weather.get("precip", 0) >= 1:
+                details.append("Regen")
+            reason_text = ", ".join(details)
+            risk = seg["risk"]
+            detailed_report += f"Risiko: {risk} ({reason_text})"
+            if seg.get("sani_needed"):
+                detailed_report += " – 🚑 Sanitäter empfohlen"
+            detailed_report += "\n"
+    else:
+        detailed_report += "Keine Segmente zur Risikoeinschätzung gefunden.\n"
+    detailed_report += "\n"
+
+    # Abschnitt 3: Gesamtrisiko
+    detailed_report += "Abschnitt 3: Gesamtrisiko\n"
+    risk_level = "gering" if avg_risk <= 2 else ("erhöht" if avg_risk < 4 else "kritisch")
+    detailed_report += f"Durchschnittlicher Risikowert: {avg_risk:.2f} ({risk_level})\n\n"
+
+    # Abschnitt 4: Wahrscheinliche Verletzungen
+    detailed_report += "Abschnitt 4: Wahrscheinliche Verletzungen\n"
+    injury_set = set()
+    for seg in seg_infos:
+        for inj in seg.get("injuries", []):
+            injury_set.add(inj)
+    if injury_set:
+        detailed_report += "Typische Verletzungen: " + ", ".join(injury_set) + "\n"
+        detailed_report += "Empfohlene Studien: (Rehlinghaus 2022), (Nelson 2010)\n\n"
+    else:
+        detailed_report += "Dazu liegen keine Informationen vor.\n\n"
+
+    # Abschnitt 5: Präventionsempfehlung
+    detailed_report += "Abschnitt 5: Präventionsempfehlung\n"
+    prevention = []
+    if live_weather.get("precip", 0) >= 1:
+        prevention.append("bei Regen: Tempo drosseln, Sicht verbessern")
+    if any(seg['sharp_curve'] for seg in seg_infos):
+        prevention.append("auf enge Kurven achten")
+    if any(seg['slope'] > 4 for seg in seg_infos):
+        prevention.append("bei steiler Steigung: vorsichtig fahren")
+    if live_weather.get("wind_speed", 0) >= 25:
+        prevention.append("bei starkem Wind besonders stabil fahren")
+    if not prevention:
+        prevention.append("Normales Fahrverhalten beibehalten")
+    detailed_report += ", ".join(prevention) + "\n\n"
+
+    # Abschnitt 6: Quellen
+    detailed_report += "Abschnitt 6: Quellen\n"
+    detailed_report += "Wissenschaftliche Quellen: (Rehlinghaus 2022), (Kronisch 2002, S. 5), (Nelson 2010), (Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\n"
+    detailed_report += "Wetterdaten: WeatherStack (sofern per API abgerufen)\n\n"
+
+    # Abschnitt 7: Interaktive Karte
+    detailed_report += "Abschnitt 7: Interaktive Karte\n"
+    detailed_report += f"Heatmap URL: https://gpx-heatmap-api.onrender.com/static/{filename}\n"
+    detailed_report += "Farbskala: grün = geringes Risiko, orange = mittleres Risiko, rot = hohes Risiko.\n"
+    detailed_report += "🚑-Marker kennzeichnen Segmente, bei denen ein Sanitäter empfohlen wird.\n"
+
     return jsonify({
         "heatmap_url": f"https://gpx-heatmap-api.onrender.com/static/{filename}",
         "distance_km": round(total_distance, 2),
-        "segments": seg_infos
+        "segments": seg_infos,
+        "detailed_report": detailed_report
     })
 
 @app.route("/", methods=["GET"])
@@ -390,17 +521,14 @@ def parse_gpx() -> Any:
     Parst eine hochgeladene GPX-Datei und extrahiert alle darin enthaltenen Punkte.
     :return: JSON mit der Liste der Koordinaten und der Gesamtstrecke in km.
     """
-    # Versuche zunächst die Datei aus request.files zu holen
     file = request.files.get("file")
     if file is None or file.filename == "":
-        # Fallback: Versuche, den Raw-Body zu lesen
         data = request.get_data()
         if not data:
             logger.error("Keine Datei empfangen, weder in request.files noch im Body.")
             return jsonify({"error": "Keine Datei empfangen"}), 400
         logger.info("GPX-Daten als Raw-Body empfangen, Länge: %d Bytes", len(data))
         file = BytesIO(data)
-        # Einen Fallback-Namen setzen
         file.filename = "uploaded.gpx"
     else:
         logger.info("GPX-Datei empfangen: %s", file.filename)
@@ -471,5 +599,4 @@ def serve_openapi() -> Any:
         return jsonify({"error": "OpenAPI-Datei nicht gefunden"}), 404
 
 if __name__ == "__main__":
-    # Für den Produktionseinsatz Debugmodus deaktivieren!
     app.run(host="0.0.0.0", port=5000, debug=False)
