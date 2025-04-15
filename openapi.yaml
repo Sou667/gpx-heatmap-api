@@ -26,7 +26,7 @@ paths:
 
   /heatmap-quick:
     post:
-      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung mit erweiterter Sani‑Logik
+      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung mit erweiterter Sani‑Logik und detailliertem Bericht
       operationId: analyzeHeatmapQuick
       requestBody:
         required: true
@@ -309,3 +309,7 @@ components:
                 type: boolean
                 description: Flag, das angibt, ob basierend auf der clusterbasierten Risikoanalyse ein Saniposten empfohlen wird.
                 example: true
+        detailed_report:
+          type: string
+          description: Detaillierter Textbericht basierend auf der Risikoanalyse, inklusive aller geforderten Abschnitte.
+          example: "Abschnitt 0: Streckenlänge\nDie Strecke umfasst 15.3 km.\n..."
