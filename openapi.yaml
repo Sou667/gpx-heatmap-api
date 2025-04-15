@@ -14,20 +14,20 @@ servers:
 paths:
   /:
     get:
-      summary: Health‑Check
+      summary: Health-Check
       operationId: healthCheck
       responses:
         '200':
-          description: CycleDoc Heatmap‑API ist bereit.
+          description: CycleDoc Heatmap-API ist bereit.
           content:
             text/plain:
               schema:
                 type: string
-                example: "✅ CycleDoc Heatmap‑API bereit"
+                example: "✅ CycleDoc Heatmap-API bereit"
 
   /heatmap-quick:
     post:
-      summary: Segmentierte Risikoanalyse & Heatmap‑Visualisierung mit erweiterter Sanitäter‑Logik und detailliertem Bericht
+      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung mit erweiterter Sanitäter‑Logik und detailliertem Bericht
       operationId: analyzeHeatmapQuick
       requestBody:
         required: true
@@ -49,7 +49,7 @@ paths:
 
   /parse-gpx:
     post:
-      summary: GPX‑Datei hochladen und Koordinaten + Distanz extrahieren
+      summary: GPX-Datei hochladen und Koordinaten + Distanz extrahieren
       operationId: parseGpxFile
       requestBody:
         required: true
@@ -62,11 +62,11 @@ paths:
                   type: string
                   format: binary
                   description: >
-                    Die zu verarbeitende GPX‑Datei. Falls diese Datei nicht über den "file"‑Key übermittelt wird, 
+                    Die zu verarbeitende GPX-Datei. Falls diese Datei nicht über den "file"‑Key übermittelt wird,
                     versucht der Server, den Raw‑Body zu verarbeiten.
       responses:
         '200':
-          description: GPX‑Daten erfolgreich geparst.
+          description: GPX-Daten erfolgreich geparst.
           content:
             application/json:
               schema:
@@ -83,11 +83,11 @@ paths:
                     type: number
                     description: Gesamtstrecke in Kilometern.
         '400':
-          description: Fehlerhafte oder ungültige GPX‑Datei.
+          description: Fehlerhafte oder ungültige GPX-Datei.
 
   /chunk-upload:
     post:
-      summary: GPX‑Koordinaten in Chunks unterteilen und speichern
+      summary: GPX-Koordinaten in Chunks unterteilen und speichern
       operationId: chunkUpload
       requestBody:
         required: true
@@ -131,7 +131,7 @@ paths:
       operationId: getOpenapiYaml
       responses:
         '200':
-          description: YAML‑Datei gefunden.
+          description: YAML-Datei gefunden.
           content:
             text/yaml:
               schema:
@@ -150,8 +150,7 @@ components:
         coordinates:
           type: array
           description: >
-            Array von Koordinaten. Jede Koordinate ist ein Array, das mindestens Latitude und Longitude 
-            (und optional Elevation) enthält.
+            Array von Koordinaten. Jede Koordinate ist ein Array, das mindestens Latitude und Longitude (und optional Elevation) enthält.
           items:
             type: array
             items:
@@ -313,4 +312,4 @@ components:
         detailed_report:
           type: string
           description: Detaillierter Textbericht, der alle Abschnitte (Streckenlänge, Wetterlage, Risikoeinschätzung, Gesamtrisiko, wahrscheinliche Verletzungen, Präventionsempfehlung, Quellen, interaktive Karte) umfasst.
-          example: "Abschnitt 0: Streckenlänge\nDie Strecke umfasst 15.3 km.\n..."
+          example: "Abschnitt 0: Streckenlänge\nDie Strecke umfasst 15.3 km.\nAbschnitt 1: Wetterlage\nRepräsentativer Punkt: (Lat: 51.250, Lon: 6.850) – Datum: 2025-04-09T07:00:00Z, Temperatur: 10°C, Wind: 12 km/h, Niederschlag: 0 mm, Bedingung: klar (Quelle: WeatherStack)\n..."
