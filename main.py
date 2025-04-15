@@ -20,7 +20,7 @@ import json
 import math
 import random
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 from io import BytesIO
@@ -101,9 +101,15 @@ def get_street_surface(lat: float, lon: float) -> str:
     return rng.choice(["asphalt", "cobblestone", "gravel"])
 
 def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
-    """Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist."""
+    """Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist.
+       Falls dt naïv ist, wird es in UTC konvertiert, sodass der Vergleich mit den
+       von astral zurückgegebenen (aware) Datumswerten funktioniert.
+    """
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     loc = LocationInfo("loc", "", "UTC", lat, lon)
-    s = sun(loc.observer, date=dt.date())
+    # Erzwinge, dass die Sun-Funktion ebenfalls UTC verwendet
+    s = sun(loc.observer, date=dt.date(), tzinfo=timezone.utc)
     return dt < s["sunrise"] or dt > s["sunset"]
 
 def segmentize(coords: List[List[float]], len_km: float = MIN_SEGMENT_LENGTH_KM) -> List[List[List[float]]]:
@@ -219,8 +225,10 @@ def fetch_current_weather(lat: float, lon: float, dt: datetime) -> Dict[str, Any
 @app.route("/heatmap-quick", methods=["POST"])
 def heatmap_quick() -> Any:
     """
-    Erzeugt eine interaktive Heatmap sowie einen detaillierten Bericht basierend auf den übergebenen Koordinaten und Parametern.
-    :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km, Segmentinformationen und einem detaillierten Bericht.
+    Erzeugt eine interaktive Heatmap sowie einen detaillierten Bericht basierend auf den
+    übergebenen Koordinaten und Parametern.
+    :return: JSON mit der URL der gespeicherten Heatmap, der Gesamtstrecke in km, Segmentinformationen
+             und einem detaillierten Bericht.
     """
     data: Dict[str, Any] = request.json or {}
 
@@ -247,7 +255,7 @@ def heatmap_quick() -> Any:
     rep_index = len(coords) // 2
     rep_lat, rep_lon = coords[rep_index][0], coords[rep_index][1]
 
-    # Bestimme, ob es Nacht ist anhand des repräsentativen Punkts
+    # Bestimme, ob es zu diesem Zeitpunkt Nacht ist
     nighttime: bool = is_nighttime_at(dt, rep_lat, rep_lon)
 
     # Wetterdaten: Verwende Override, falls vorhanden, sonst aktuelle Wetterdaten abrufen
