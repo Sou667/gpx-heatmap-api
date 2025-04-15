@@ -44,8 +44,16 @@ paths:
                 $ref: '#/components/schemas/HeatmapResponse'
         '400':
           description: Ungültige oder fehlende Eingabedaten (z. B. Koordinaten oder start_time).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Interner Serverfehler.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /parse-gpx:
     post:
@@ -62,8 +70,8 @@ paths:
                   type: string
                   format: binary
                   description: >
-                    Die zu verarbeitende GPX-Datei. Falls diese Datei nicht über den "file"‑Key übermittelt wird,
-                    versucht der Server, den Raw‑Body zu verarbeiten.
+                    Die zu verarbeitende GPX-Datei. Falls diese Datei nicht über den "file"‑Key
+                    übermittelt wird, versucht der Server, den Raw‑Body zu verarbeiten.
       responses:
         '200':
           description: GPX-Daten erfolgreich geparst.
@@ -84,6 +92,10 @@ paths:
                     description: Gesamtstrecke in Kilometern.
         '400':
           description: Fehlerhafte oder ungültige GPX-Datei.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /chunk-upload:
     post:
@@ -124,6 +136,10 @@ paths:
                       type: string
         '400':
           description: Keine gültigen Koordinaten empfangen.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /openapi.yaml:
     get:
@@ -138,6 +154,10 @@ paths:
                 type: string
         '404':
           description: Datei nicht gefunden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 components:
   schemas:
@@ -196,7 +216,7 @@ components:
           type: string
           format: date-time
           description: >
-            ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde. Dieses Feld ist verpflichtend.
+            ISO‑8601 Datum/Uhrzeit, ab der die Strecke gestartet wurde. Dieses Feld ist verpflichtend und sollte in UTC angegeben werden.
           example: "2025-04-09T07:00:00Z"
         wetter_override:
           type: object
@@ -313,3 +333,12 @@ components:
           type: string
           description: Detaillierter Textbericht, der alle Abschnitte (Streckenlänge, Wetterlage, Risikoeinschätzung, Gesamtrisiko, wahrscheinliche Verletzungen, Präventionsempfehlung, Quellen, interaktive Karte) umfasst.
           example: "Abschnitt 0: Streckenlänge\nDie Strecke umfasst 15.3 km.\nAbschnitt 1: Wetterlage\nRepräsentativer Punkt: (Lat: 51.250, Lon: 6.850) – Datum: 2025-04-09T07:00:00Z, Temperatur: 10°C, Wind: 12 km/h, Niederschlag: 0 mm, Bedingung: klar (Quelle: WeatherStack)\n..."
+          
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Beschreibung des Fehlers.
+      example:
+        error: "Ungültige Eingabedaten"
