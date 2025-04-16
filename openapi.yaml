@@ -1,64 +1,209 @@
-openapi: 3.1.0
+openapi: 3.0.2
 info:
-  title: CycleDoc Heatmap API
-  version: "1.0"
-  description: >
-    Diese API analysiert GPX-Daten, segmentiert die Strecke und berechnet Risiken auf Basis von
-    Wetter, Kurven, Straßenoberfläche etc. Es werden interaktive Karten mit Farbvisualisierung erstellt,
-    und mittels einer intelligenten, clusterbasierten Sanitäter‑Logik (repräsentativer Marker im Rennmodus,
-    Markierung aller riskanten Segmente bei Privattouren) werden potenziell gefährliche Abschnitte hervorgehoben.
-    Zusätzlich wird ein detaillierter Textbericht generiert.
+  title: CycleDoc Heatmap-API
+  description: |
+    API zur Verarbeitung von GPX-Daten, Segmentierung von Routen, Risikoanalyse und Erstellung einer interaktiven Heatmap.
+    Die API bietet Funktionen zur Berechnung von Streckenlänge, Risikobewertung basierend auf Wetter, Steigung, Kurven und weiteren Parametern,
+    sowie zur Erstellung eines detaillierten Berichts gemäß den Systemanforderungen.
+    Zusätzlich wird eine intelligente Sanitäterlogik implementiert, um kritische Segmente zu identifizieren.
+
+    **Hinweise:**
+    - Für eine genaue Wetterabfrage wird ein externer Wetterdienst (WeatherStack) verwendet. Stelle sicher, dass die Umgebungsvariable `WEATHERSTACK_API_KEY` gesetzt ist.
+    - Logs werden in `app.log` geschrieben und können zur Fehlersuche (z. B. Anzahl der Segmente, Wetterabfrage) verwendet werden.
+  version: 1.0.0
+
 servers:
   - url: https://gpx-heatmap-api.onrender.com
+    description: Produktionsserver
 
 paths:
   /:
     get:
-      summary: Health-Check
-      operationId: healthCheck
+      summary: Health-Check-Endpunkt
+      description: Einfacher Endpunkt zur Überprüfung, ob die API läuft.
       responses:
         '200':
-          description: CycleDoc Heatmap-API ist bereit.
+          description: API ist bereit.
           content:
             text/plain:
               schema:
                 type: string
-                example: "✅ CycleDoc Heatmap-API bereit"
+                example: ✅ CycleDoc Heatmap-API bereit
 
   /heatmap-quick:
     post:
-      summary: Segmentierte Risikoanalyse & Heatmap-Visualisierung mit erweiterter Sanitäter‑Logik und detailliertem Bericht
-      operationId: analyzeHeatmapQuick
+      summary: Erzeugt eine Heatmap und einen detaillierten Bericht
+      description: |
+        Verarbeitet eine Liste von Koordinaten und Parametern, um eine interaktive Heatmap zu erstellen.
+        Die API segmentiert die Strecke, führt eine Risikoanalyse durch (basierend auf Wetter, Steigung, Kurven, Fahrerprofil etc.),
+        und erstellt einen detaillierten Bericht. Wetterdaten werden für mehrere Punkte entlang der Strecke abgefragt (ca. alle 50 km),
+        um regionale Unterschiede zu berücksichtigen. Logs in `app.log` enthalten Details zur Segmentierung und Risikoanalyse.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/HeatmapRequest'
+              type: object
+              required:
+                - coordinates
+                - start_time
+              properties:
+                coordinates:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: number
+                    minItems: 2
+                    maxItems: 3
+                  description: Liste von Koordinaten im Format `[latitude, longitude, elevation?]`.
+                  example: [[48.137154, 11.576124, 520], [48.138, 11.577, 521]]
+                start_time:
+                  type: string
+                  format: date-time
+                  description: Startzeit im ISO-8601-Format (z. B. "2025-04-09T07:00:00Z").
+                  example: "2025-04-09T07:00:00Z"
+                fahrer_typ:
+                  type: string
+                  description: Typ des Fahrers (z. B. "hobby", "profi").
+                  example: "hobby"
+                anzahl:
+                  type: integer
+                  description: Anzahl der Fahrer.
+                  example: 5
+                rennen_art:
+                  type: string
+                  description: Art des Rennens (z. B. "downhill", "road").
+                  example: "road"
+                geschlecht:
+                  type: string
+                  description: Geschlecht des Fahrers (z. B. "m", "w").
+                  example: "w"
+                alter:
+                  type: integer
+                  description: Alter des Fahrers.
+                  example: 42
+                material:
+                  type: string
+                  description: Material des Fahrrads (z. B. "carbon", "aluminium").
+                  example: "aluminium"
+                schutzausruestung:
+                  type: object
+                  properties:
+                    helm:
+                      type: boolean
+                    protektoren:
+                      type: boolean
+                  description: Schutzausrüstung des Fahrers.
+                  example: {"helm": true, "protektoren": false}
+                overuse_knee:
+                  type: boolean
+                  description: Hat der Fahrer Knieprobleme durch Überlastung?
+                  example: false
+                rueckenschmerzen:
+                  type: boolean
+                  description: Hat der Fahrer Rückenschmerzen?
+                  example: false
+                massenstart:
+                  type: boolean
+                  description: Handelt es sich um einen Massenstart?
+                  example: false
+                wetter_override:
+                  type: object
+                  properties:
+                    temperature:
+                      type: number
+                    wind_speed:
+                      type: number
+                    precip:
+                      type: number
+                    condition:
+                      type: string
+                  description: Optionale Wetterdaten zum Überschreiben der API-Abfrage.
+                  example: {"temperature": 15, "wind_speed": 10, "precip": 0, "condition": "klar"}
       responses:
         '200':
-          description: Risikoanalyse erfolgreich abgeschlossen.
+          description: Erfolgreiche Verarbeitung mit Heatmap-URL, Streckenlänge, Segmentinformationen und Bericht.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HeatmapResponse'
+                type: object
+                properties:
+                  heatmap_url:
+                    type: string
+                    description: URL zur erstellten Heatmap.
+                    example: "https://gpx-heatmap-api.onrender.com/static/heatmap_20250409120000.html"
+                  distance_km:
+                    type: number
+                    description: Gesamtlänge der Strecke in Kilometern.
+                    example: 10.5
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        segment_index:
+                          type: integer
+                        center:
+                          type: object
+                          properties:
+                            lat:
+                              type: number
+                            lon:
+                              type: number
+                        slope:
+                          type: number
+                        sharp_curve:
+                          type: boolean
+                        terrain:
+                          type: string
+                        weather:
+                          type: object
+                        nighttime:
+                          type: boolean
+                        street_surface:
+                          type: string
+                        risk:
+                          type: integer
+                        injuries:
+                          type: array
+                          items:
+                            type: string
+                        sani_needed:
+                          type: boolean
+                    description: Informationen zu den Segmenten der Strecke.
+                  detailed_report:
+                    type: string
+                    description: Detaillierter Bericht mit Risikoeinschätzung, Wetterdaten, Verletzungen etc.
         '400':
-          description: Ungültige oder fehlende Eingabedaten (z. B. Koordinaten oder start_time).
+          description: Ungültige Eingabedaten.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Keine gültigen Koordinaten empfangen"
         '500':
-          description: Interner Serverfehler.
+          description: Serverfehler bei der Verarbeitung.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Fehler bei der Kartenerstellung"
 
   /parse-gpx:
     post:
-      summary: GPX-Datei hochladen und Koordinaten + Distanz extrahieren
-      operationId: parseGpxFile
+      summary: Parst eine GPX-Datei und extrahiert Koordinaten
+      description: |
+        Verarbeitet eine hochgeladene GPX-Datei und extrahiert alle Track- oder Routenpunkte.
+        Die API unterstützt sowohl `multipart/form-data` (Datei-Upload) als auch `application/json` (Base64-codierte Datei).
+        Häufige XML-Probleme (z. B. BOM, Encoding, fehlender Header) werden automatisch korrigiert.
+        Es gibt ein Limit von 100.000 Trackpunkten pro Datei.
       requestBody:
         required: true
         content:
@@ -69,19 +214,22 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: Die zu verarbeitende GPX-Datei.
-              required: [file]
+                  description: Die hochzuladende GPX-Datei.
+              required:
+                - file
           application/json:
             schema:
               type: object
               properties:
                 file_base64:
                   type: string
-                  description: Base64-kodierte GPX-Datei.
-              required: [file_base64]
+                  description: Base64-codierte GPX-Datei.
+                  example: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4..."
+              required:
+                - file_base64
       responses:
         '200':
-          description: GPX-Daten erfolgreich geparst.
+          description: Erfolgreiche Extraktion der Koordinaten und Berechnung der Streckenlänge.
           content:
             application/json:
               schema:
@@ -89,58 +237,75 @@ paths:
                 properties:
                   coordinates:
                     type: array
-                    description: Liste der extrahierten Koordinaten (Latitude, Longitude, Elevation).
                     items:
                       type: array
                       items:
                         type: number
+                      minItems: 2
+                      maxItems: 3
+                    description: Liste der extrahierten Koordinaten im Format `[latitude, longitude, elevation?]`.
+                    example: [[48.137154, 11.576124, 520], [48.138, 11.577, 521]]
                   distance_km:
                     type: number
-                    description: Gesamtstrecke in Kilometern.
+                    description: Gesamtlänge der Strecke in Kilometern.
+                    example: 10.5
         '400':
-          description: Fehlerhafte oder ungültige Eingabe.
+          description: Ungültige GPX-Datei oder Eingabedaten.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                no_file:
-                  value: { "error": "Keine Datei unter 'file'-Key empfangen" }
-                invalid_base64:
-                  value: { "error": "Ungültiges Base64-Format" }
-                too_small:
-                  value: { "error": "Empfangene Daten zu klein für eine GPX-Datei" }
-                invalid_xml:
-                  value: { "error": "Ungültige XML-Struktur: ..." }
-                no_points:
-                  value: { "error": "GPX-Datei enthält keine Track- oder Routenpunkte" }
+                type: object
+                properties:
+                  error:
+                    type: string
+                    examples:
+                      - "Ungültige XML-Struktur: not well-formed (invalid token): line 1, column 2"
+                      - "GPX-Datei enthält keine Track- oder Routenpunkte"
+                      - "Zu wenige Koordinaten für eine Distanzberechnung"
+                      - "Zu viele Trackpunkte: 150000. Maximum erlaubt: 100000"
+        '500':
+          description: Serverfehler bei der Verarbeitung der GPX-Datei.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Fehler beim Verarbeiten der GPX-Daten: ..."
 
   /chunk-upload:
     post:
-      summary: GPX-Koordinaten in Chunks unterteilen und speichern
-      operationId: chunkUpload
+      summary: Teilt Koordinaten in Chunks auf und speichert sie
+      description: |
+        Teilt eine Liste von Koordinaten in kleinere JSON-Chunks auf und speichert diese als Dateien.
+        Dies ist nützlich, um große Strecken in manageable Teile zu zerlegen.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - coordinates
               properties:
                 coordinates:
                   type: array
-                  description: >
-                    Array von Koordinaten (jeder Punkt ist ein Array mit mindestens Latitude und Longitude).
                   items:
                     type: array
                     items:
                       type: number
+                    minItems: 2
+                    maxItems: 3
+                  description: Liste von Koordinaten im Format `[latitude, longitude, elevation?]`.
+                  example: [[48.137154, 11.576124, 520], [48.138, 11.577, 521]]
                 chunk_size:
                   type: integer
-                  description: Maximale Anzahl der Koordinaten pro Chunk.
-                  default: 200
+                  description: Anzahl der Koordinaten pro Chunk (Standard: 200).
+                  example: 200
       responses:
         '200':
-          description: Chunks erfolgreich gespeichert.
+          description: Chunks wurden erfolgreich erstellt und gespeichert.
           content:
             application/json:
               schema:
@@ -148,214 +313,63 @@ paths:
                 properties:
                   message:
                     type: string
+                    description: Bestätigung der Operation.
+                    example: "3 Chunks gespeichert"
                   chunks:
                     type: array
                     items:
                       type: string
+                    description: Liste der Dateinamen der erstellten Chunks.
+                    example: ["chunks/chunk_1.json", "chunks/chunk_2.json", "chunks/chunk_3.json"]
         '400':
-          description: Keine gültigen Koordinaten empfangen.
+          description: Ungültige Eingabedaten.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Keine gültigen Koordinaten empfangen"
+        '500':
+          description: Fehler beim Speichern der Chunks.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Fehler beim Speichern der Chunks"
 
   /openapi.yaml:
     get:
-      summary: Liefert die OpenAPI‑Spezifikation (YAML)
-      operationId: getOpenapiYaml
+      summary: Liefert die OpenAPI-Spezifikation
+      description: Stellt die OpenAPI-Spezifikation im YAML-Format bereit.
       responses:
         '200':
-          description: YAML-Datei gefunden.
+          description: OpenAPI-Spezifikation erfolgreich geliefert.
           content:
             text/yaml:
               schema:
                 type: string
         '404':
-          description: Datei nicht gefunden.
+          description: OpenAPI-Datei nicht gefunden.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "OpenAPI-Datei nicht gefunden"
 
 components:
   schemas:
-    HeatmapRequest:
-      type: object
-      required:
-        - coordinates
-        - start_time
-      properties:
-        coordinates:
-          type: array
-          description: >
-            Array von Koordinaten. Jede Koordinate ist ein Array, das mindestens Latitude und Longitude (und optional Elevation) enthält.
-          items:
-            type: array
-            items:
-              type: number
-          example: [[51.242, 6.830, 42.0], [51.243, 6.831, 42.1]]
-        fahrer_typ:
-          type: string
-          description: Fahrertyp, z. B. "hobby" oder "profi".
-          example: "hobby"
-        anzahl:
-          type: integer
-          description: Anzahl der Teilnehmer.
-          example: 1
-        alter:
-          type: integer
-          description: Alter des Fahrers bzw. der Fahrer.
-          example: 42
-        geschlecht:
-          type: string
-          description: Geschlecht des Fahrers (z. B. "m" oder "w").
-          example: "m"
-        massenstart:
-          type: boolean
-          description: Gibt an, ob es sich um einen Massenstart handelt.
-          example: false
-        overuse_knee:
-          type: boolean
-          description: Gibt an, ob eine Überbeanspruchung der Knie vorliegt.
-          example: false
-        rueckenschmerzen:
-          type: boolean
-          description: Gibt an, ob Rückenbeschwerden vorliegen.
-          example: false
-        material:
-          type: string
-          description: Material des Fahrrads (z. B. "carbon", "aluminium").
-          example: "aluminium"
-        rennen_art:
-          type: string
-          description: Art des Rennens, z. B. "downhill", "freeride", "rennen".
-          example: "downhill"
-        start_time:
-          type: string
-          format: date-time
-          description: ISO‑8601 Datum/Uhrzeit in UTC (z. B. "2025-04-09T07:00:00Z" oder "2025-04-09T07:00:00+00:00").
-          example: "2025-04-09T07:00:00Z"
-        wetter_override:
-          type: object
-          description: Optionale Wetterdaten, die Echtzeitwetterinformationen überschreiben.
-          properties:
-            temperature:
-              type: number
-            wind_speed:
-              type: number
-            precip:
-              type: number
-            condition:
-              type: string
-          example:
-            temperature: 10
-            wind_speed: 12
-            precip: 0
-            condition: "klar"
-        schutzausruestung:
-          type: object
-          description: Angaben zur getragenen Schutzausrüstung.
-          properties:
-            helm:
-              type: boolean
-            protektoren:
-              type: boolean
-          example:
-            helm: true
-            protektoren: false
-
-    HeatmapResponse:
-      type: object
-      properties:
-        heatmap_url:
-          type: string
-          format: uri
-          description: URL der generierten Heatmap im statischen Verzeichnis.
-          example: "https://gpx-heatmap-api.onrender.com/static/heatmap_20250409070000.html"
-        distance_km:
-          type: number
-          description: Gesamtstrecke in Kilometern.
-          example: 15.3
-        segments:
-          type: array
-          description: Liste der analysierten Segmente inkl. Risikobewertung, Verletzungsprognose und Sanitäter‑Logik.
-          items:
-            type: object
-            properties:
-              segment_index:
-                type: integer
-                description: Laufende Nummer des Segments.
-                example: 1
-              center:
-                type: object
-                description: Zentraler Punkt des Segments.
-                properties:
-                  lat:
-                    type: number
-                  lon:
-                    type: number
-                example: {"lat": 51.243, "lon": 6.832}
-              slope:
-                type: number
-                description: Steigung des Segments in Prozent.
-                example: 3.5
-              sharp_curve:
-                type: boolean
-                description: Gibt an, ob das Segment eine scharfe Kurve enthält.
-                example: true
-              terrain:
-                type: string
-                description: Terrain des Segments ("Anstieg", "Abfahrt", "Flach").
-                example: "Anstieg"
-              weather:
-                type: object
-                description: Wetterdaten, die für die Segmentanalyse verwendet wurden.
-                properties:
-                  temperature:
-                    type: number
-                  wind_speed:
-                    type: number
-                  precip:
-                    type: number
-                  condition:
-                    type: string
-                example:
-                  temperature: 10
-                  wind_speed: 12
-                  precip: 0
-                  condition: "klar"
-              street_surface:
-                type: string
-                description: Ermittelte Straßenoberfläche (z. B. asphalt, cobblestone, gravel).
-                example: "asphalt"
-              nighttime:
-                type: boolean
-                description: Gibt an, ob das Segment in der Nacht gefahren wurde.
-                example: false
-              risk:
-                type: integer
-                description: Berechnetes Risiko des Segments (Wert zwischen 1 und 5).
-                example: 3
-              injuries:
-                type: array
-                description: Liste typischer Verletzungsbilder für das Segment.
-                items:
-                  type: string
-                example: ["Abschürfungen", "Prellungen"]
-              sani_needed:
-                type: boolean
-                description: Flag, das angibt, ob basierend auf der clusterbasierten Risikoanalyse ein Saniposten empfohlen wird.
-                example: true
-        detailed_report:
-          type: string
-          description: Detaillierter Textbericht, der alle Abschnitte (Streckenlänge, Wetterlage, Risikoeinschätzung, Gesamtrisiko, wahrscheinliche Verletzungen, Präventionsempfehlung, Quellen, interaktive Karte) umfasst.
-          example: "Abschnitt 0: Streckenlänge\nDie Strecke umfasst 15.3 km.\nAbschnitt 1: Wetterlage\nRepräsentativer Punkt: (Lat: 51.250, Lon: 6.850) – Datum: 2025-04-09T07:00:00Z, Temperatur: 10°C, Wind: 12 km/h, Niederschlag: 0 mm, Bedingung: klar (Quelle: WeatherStack)\n..."
-          
-    ErrorResponse:
+    Error:
       type: object
       properties:
         error:
           type: string
-          description: Beschreibung des Fehlers.
-      example:
-        error: "Ungültige Eingabedaten"
+      required:
+        - error
