@@ -34,6 +34,7 @@ from geopy.distance import geodesic
 from astral import LocationInfo
 from astral.sun import sun
 import requests  # Für Wetter-API-Aufrufe
+import chardet  # Für Encoding-Erkennung
 
 # --- Logging und Konfiguration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -59,6 +60,7 @@ DEFAULT_WEATHER: Dict[str, Any] = {
     "condition": "klar"
 }
 MIN_SEGMENT_LENGTH_KM: float = 0.005
+MAX_POINTS: int = 100000  # Maximale Anzahl von Trackpunkten
 
 # --- Helper Functions ---
 
@@ -104,7 +106,6 @@ def get_street_surface(lat: float, lon: float) -> str:
 
 def is_nighttime_at(dt: datetime, lat: float, lon: float) -> bool:
     """Bestimmt, ob es zur angegebenen Zeit am Standort Nacht ist."""
-    # Stelle sicher, dass dt zeitzonenbewusst ist
     if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
         dt = dt.replace(tzinfo=timezone.utc)
         logger.debug("dt war naiv, konvertiert zu UTC: %s", dt)
@@ -227,6 +228,62 @@ def fetch_current_weather(lat: float, lon: float, dt: datetime) -> Dict[str, Any
         logger.error("Fehler beim Abrufen der Wetterdaten: %s", e)
         return DEFAULT_WEATHER
 
+def fetch_weather_for_route(coords: List[List[float]], dt: datetime) -> List[Dict[str, Any]]:
+    """
+    Ruft Wetterdaten für mehrere Punkte entlang der Strecke ab (alle 50 km oder mindestens 5 Punkte).
+    """
+    weather_points = []
+    step = max(1, len(coords) // 5)  # Wähle bis zu 5 Punkte entlang der Strecke
+    for i in range(0, len(coords), step):
+        lat, lon = coords[i][0], coords[i][1]
+        weather = fetch_current_weather(lat, lon, dt)
+        weather_points.append(weather)
+        logger.info("Wetter abgerufen für Punkt (%f, %f): %s", lat, lon, weather)
+    return weather_points
+
+def average_weather(weather_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Berechnet durchschnittliche Wetterdaten aus einer Liste von Wetterpunkten.
+    """
+    if not weather_list:
+        return DEFAULT_WEATHER
+    avg_weather = {
+        "temperature": sum(w["temperature"] for w in weather_list) / len(weather_list),
+        "wind_speed": sum(w["wind_speed"] for w in weather_list) / len(weather_list),
+        "precip": sum(w["precip"] for w in weather_list) / len(weather_list),
+        "condition": weather_list[0]["condition"]  # Vereinfacht: Nehme die Bedingung des ersten Punktes
+    }
+    return avg_weather
+
+def fix_gpx_content(file) -> BytesIO:
+    """
+    Versucht, häufige Probleme in GPX-Dateien zu beheben (BOM, Encoding, fehlender Header).
+    """
+    try:
+        content = file.read()
+        # Prüfe Encoding
+        result = chardet.detect(content)
+        encoding = result['encoding']
+        if encoding != 'utf-8':
+            content = content.decode(encoding).encode('utf-8')
+            logger.info("Encoding konvertiert von %s zu UTF-8", encoding)
+
+        # Entferne BOM
+        if content.startswith(b'\xef\xbb\xbf'):
+            content = content[3:]
+            logger.info("BOM entfernt")
+
+        # Stelle sicher, dass der XML-Header korrekt ist
+        expected_header = b'<?xml version="1.0" encoding="UTF-8"?>'
+        if not content.startswith(expected_header):
+            content = expected_header + b'\n' + content
+            logger.info("XML-Header hinzugefügt")
+
+        return BytesIO(content)
+    except Exception as e:
+        logger.error("Fehler beim Reparieren der GPX-Datei: %s", e)
+        raise
+
 # --- API Endpoints ---
 
 @app.route("/heatmap-quick", methods=["POST"])
@@ -268,14 +325,16 @@ def heatmap_quick() -> Any:
     # Bestimme, ob es zu diesem Zeitpunkt Nacht ist
     nighttime: bool = is_nighttime_at(dt, rep_lat, rep_lon)
 
-    # Wetterdaten: Verwende Override, falls vorhanden, sonst aktuelle Wetterdaten abrufen
+    # Wetterdaten: Verwende Override, falls vorhanden, sonst aktuelle Wetterdaten für mehrere Punkte abrufen
     if data.get("wetter_override"):
         live_weather = data.get("wetter_override")
     else:
-        live_weather = fetch_current_weather(rep_lat, rep_lon, dt)
+        weather_list = fetch_weather_for_route(coords, dt)
+        live_weather = average_weather(weather_list)
 
     # Segmentierung der Strecke
     segments = segmentize(coords, MIN_SEGMENT_LENGTH_KM)
+    logger.info("Anzahl der erstellten Segmente: %d", len(segments))
 
     seg_infos: List[Dict[str, Any]] = []
     all_locations: List[Tuple[float, float]] = []
@@ -330,6 +389,7 @@ def heatmap_quick() -> Any:
     min_gap = 5  # Mindestabstand zwischen markierten Clustern im Rennmodus
 
     risk_indices = [i for i, info in enumerate(seg_infos) if info.get("risk", 0) >= 3]
+    logger.info("Anzahl der riskanten Segmente: %d", len(risk_indices))
 
     clusters = []
     current_cluster = []
@@ -417,6 +477,7 @@ def heatmap_quick() -> Any:
 
     try:
         m.fit_bounds(all_locations)
+        logger.info("Kartengrenzen erfolgreich angepasst")
     except Exception as e:
         logger.warning("Konnte Kartengrenzen nicht anpassen: %s", e)
 
@@ -581,6 +642,12 @@ def parse_gpx() -> Any:
         file = BytesIO(data)
         file.filename = "uploaded.gpx"
 
+    # Versuche, die Datei zu reparieren
+    try:
+        file = fix_gpx_content(file)
+    except Exception as e:
+        return jsonify({"error": f"Fehler beim Reparieren der GPX-Datei: {str(e)}"}), 400
+
     # Prüfe XML-Gültigkeit
     try:
         file.seek(0)
@@ -618,6 +685,15 @@ def parse_gpx() -> Any:
     except Exception as e:
         logger.error("Fehler beim Extrahieren der Koordinaten: %s", e)
         return jsonify({"error": f"Fehler beim Verarbeiten der GPX-Daten: {str(e)}"}), 500
+
+    # Prüfe auf zu wenige oder zu viele Koordinaten
+    if len(coords) < 2:
+        logger.warning("Zu wenige Koordinaten für eine Distanzberechnung")
+        return jsonify({"error": "Zu wenige Koordinaten für eine Distanzberechnung"}), 400
+
+    if len(coords) > MAX_POINTS:
+        logger.error("Zu viele Trackpunkte: %d (Maximum: %d)", len(coords), MAX_POINTS)
+        return jsonify({"error": f"Zu viele Trackpunkte: {len(coords)}. Maximum erlaubt: {MAX_POINTS}"}), 400
 
     # Berechne Distanz
     total_km = sum(
