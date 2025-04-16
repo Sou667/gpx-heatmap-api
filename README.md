@@ -1,80 +1,111 @@
-# 🚴‍♂️ CycleDoc Heatmap API
+CycleDoc Heatmap-API
+Eine API zur Verarbeitung von GPX-Daten, Segmentierung von Routen, Risikoanalyse und Erstellung einer interaktiven Heatmap. Die API berechnet Streckenlänge, führt eine Risikoanalyse basierend auf Wetter, Steigung, Kurven, Fahrerprofil und weiteren Parametern durch, erstellt einen detaillierten Bericht und visualisiert die Ergebnisse in einer interaktiven Karte mit intelligenter Sanitäterlogik.
+Funktionalität
 
-[![API Status](https://img.shields.io/badge/API-Live-green)](https://gpx-heatmap-api.onrender.com)  
-[![Version](https://img.shields.io/badge/version-1.0-blue)](#)  
-[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1.0-yellow)](https://gpx-heatmap-api.onrender.com/openapi.yaml)  
-[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+GPX-Verarbeitung: Lädt und parst GPX-Dateien, extrahiert Koordinaten und berechnet die Gesamtdistanz. Unterstützt sowohl multipart/form-data (Datei-Upload) als auch application/json (Base64-codierte Datei). Häufige XML-Probleme (z. B. BOM, falsches Encoding, fehlender Header) werden automatisch korrigiert.
+Segmentierung: Teilt die Strecke in Segmente auf (Standard: 0,005 km pro Segment).
+Risikoanalyse: Bewertet das Risiko basierend auf Wetter, Steigung, Kurven, Fahrerprofil (z. B. Typ, Alter, Geschlecht), Straßenoberfläche, Schutzausrüstung, Massenstart, Nachtzeit und weiteren Parametern.
+Wetterabfrage: Ruft Wetterdaten von WeatherStack für mehrere Punkte entlang der Strecke ab (ca. alle 50 km), um regionale Unterschiede zu berücksichtigen. Unterstützt auch manuelle Überschreibung der Wetterdaten.
+Heatmap: Erstellt eine interaktive Karte mit Folium, die die gesamte Route (blau) sowie riskante Segmente (grün/orange/rot) anzeigt. Sanitäterempfehlungen werden als Marker (🚑) hinzugefügt.
+Detaillierter Bericht: Generiert einen umfassenden Bericht mit Streckenlänge, Wetterlage, Risikoeinschätzung, wahrscheinlichen Verletzungen, Präventionsempfehlungen, Quellen und einem Link zur Heatmap.
+Chunking: Teilt große Strecken in kleinere JSON-Chunks auf, um die Verarbeitung zu erleichtern.
+Logging: Detaillierte Logs werden in app.log geschrieben und enthalten Informationen zur Segmentierung, Risikoanalyse, Wetterabfrage und Fehlerbehandlung.
 
-CycleDoc Heatmap API ist ein KI-gestütztes Analyse-Tool, das Radsportverletzungen und Sicherheitsrisiken untersucht.  
-Die API verarbeitet reale GPX‑Streckendaten, segmentiert die Strecke in kurze Abschnitte (etwa 0.005 km pro Segment) und berechnet risikoabhängige Kennzahlen – basierend auf Wetter, Streckenprofil, Straßenoberfläche und wissenschaftlichen Studien. Mithilfe eines intelligenten, clusterbasierten Algorithmus für die Sanitäter‑Logik werden interaktive Risiko‑Heatmaps generiert. Zusätzlich wird ein detaillierter Textbericht erstellt.
+Einschränkungen
 
-## Neuerungen in dieser Version
+Es gibt ein Limit von 100.000 Trackpunkten pro GPX-Datei, um Speicherprobleme zu vermeiden.
+Für große Dateien wird ein Task-Queue-System wie Celery empfohlen (nicht implementiert).
 
-- **Echte Wetterabfrage:**  
-  Die API ruft aktuelle Wetterdaten von WeatherStack ab (sofern die Umgebungsvariable `WEATHERSTACK_API_KEY` gesetzt ist). Ohne API‑Schlüssel werden Standardwerte verwendet.
-  
-- **Verbesserte Standortbestimmung:**  
-  Es wird ein repräsentativer Mittelpunkt der Strecke zur Abfrage von Wetterdaten und zur Bestimmung der Nachtzeit verwendet.
+Installation
 
-- **Detaillierter Bericht:**  
-  Zusätzlich zur JSON-Antwort liefert die API einen strukturierten Textbericht in folgenden Abschnitten:
-  1. Streckenlänge  
-  2. Wetterlage  
-  3. Segmentweise Risikoeinschätzung  
-  4. Gesamtrisiko  
-  5. Wahrscheinliche Verletzungen  
-  6. Präventionsempfehlung  
-  7. Interaktive Karte (inkl. Erklärung der Farbskala und 🚑‑Markern)
+Abhängigkeiten installieren:
+pip install flask gpxpy folium geopy astral requests chardet
 
-## Live-Demo
 
-👉 [Jetzt testen](https://gpx-heatmap-api.onrender.com/static/heatmap_YYYYMMDDHHMMSS.html)  
-*Hinweis: Der Dateiname der generierten Heatmap enthält einen Zeitstempel (YYYYMMDDHHMMSS).*
+flask: Web-Framework für die API.
+gpxpy: Zum Parsen von GPX-Dateien.
+folium: Zur Erstellung interaktiver Karten.
+geopy: Zur Berechnung geodätischer Entfernungen.
+astral: Zur Bestimmung von Sonnenaufgang und -untergang (Nachtzeit-Erkennung).
+requests: Für die Wetterabfrage via WeatherStack.
+chardet: Für die Erkennung und Korrektur des Encodings von GPX-Dateien.
 
-## Endpunkte
 
-- **GET /**  
-  Health‑Check der API.
+Umgebungsvariable für Wetter-API setzen:
+export WEATHERSTACK_API_KEY=dein_api_key
 
-- **POST /heatmap-quick**  
-  Führt eine segmentierte Risikoanalyse aus, erstellt eine interaktive Heatmap und generiert einen detaillierten Bericht.
+Ersetze dein_api_key durch deinen WeatherStack API-Schlüssel. Ohne Schlüssel werden Standardwetterdaten verwendet.
 
-- **POST /parse-gpx**  
-  Parst eine hochgeladene GPX‑Datei und extrahiert Koordinaten sowie die Gesamtstrecke.
+API starten:
+python main.py
 
-- **POST /chunk-upload**  
-  Teilt GPX‑Koordinaten in kleinere Chunks und speichert diese als JSON‑Dateien.
+Die API läuft auf http://localhost:5000. Im Produktionsmodus sollte ein WSGI-Server wie gunicorn verwendet werden.
 
-- **GET /openapi.yaml**  
-  Liefert die vollständige OpenAPI‑Spezifikation im YAML‑Format.
 
-## Beispielaufruf
+Endpunkte
 
-Hier ein Beispielaufruf mit cURL für den Endpunkt `/heatmap-quick`:
+GET /: Einfacher Health-Check. Antwort: "✅ CycleDoc Heatmap-API bereit".
+POST /heatmap-quick: Erstellt eine Heatmap und einen detaillierten Bericht basierend auf Koordinaten und Parametern.
+POST /parse-gpx: Parst eine GPX-Datei und gibt Koordinaten sowie die Streckenlänge zurück.
+POST /chunk-upload: Teilt Koordinaten in kleinere JSON-Chunks auf und speichert diese.
+GET /openapi.yaml: Liefert die OpenAPI-Spezifikation.
 
-```bash
-curl -X POST https://gpx-heatmap-api.onrender.com/heatmap-quick \
-  -H "Content-Type: application/json" \
-  -d '{
-        "coordinates": [[51.242, 6.830, 42.0], [51.243, 6.831, 42.1], [51.244, 6.832, 42.2]],
-        "start_time": "2025-04-09T07:00:00Z",
-        "fahrer_typ": "hobby",
-        "anzahl": 1,
-        "alter": 42,
-        "geschlecht": "m",
-        "massenstart": false,
-        "overuse_knee": false,
-        "rueckenschmerzen": false,
-        "material": "aluminium",
-        "rennen_art": "downhill",
-        "wetter_override": {
-           "temperature": 10,
-           "wind_speed": 12,
-           "precip": 0,
-           "condition": "klar"
-        },
-        "schutzausruestung": {
-           "helm": true,
-           "protektoren": false
-        }
-      }'
+Details zu den Endpunkten findest du in der OpenAPI-Spezifikation.
+Beispiel: /heatmap-quick
+Anfrage
+{
+  "coordinates": [
+    [48.137154, 11.576124, 520],
+    [48.138, 11.577, 521],
+    [48.139, 11.578, 522]
+  ],
+  "start_time": "2025-04-09T07:00:00Z",
+  "fahrer_typ": "hobby",
+  "anzahl": 5,
+  "rennen_art": "road",
+  "geschlecht": "w",
+  "alter": 42,
+  "material": "aluminium",
+  "schutzausruestung": {
+    "helm": true,
+    "protektoren": false
+  },
+  "overuse_knee": false,
+  "rueckenschmerzen": false,
+  "massenstart": false
+}
+
+Antwort
+{
+  "heatmap_url": "https://gpx-heatmap-api.onrender.com/static/heatmap_20250409120000.html",
+  "distance_km": 0.23,
+  "segments": [
+    {
+      "segment_index": 1,
+      "center": {"lat": 48.138, "lon": 11.577},
+      "slope": 0.1,
+      "sharp_curve": false,
+      "terrain": "Flach",
+      "weather": {
+        "temperature": 15,
+        "wind_speed": 10,
+        "precip": 0,
+        "condition": "klar"
+      },
+      "nighttime": false,
+      "street_surface": "asphalt",
+      "risk": 1,
+      "injuries": ["Abschürfungen", "Prellungen"],
+      "sani_needed": false
+    }
+  ],
+  "detailed_report": "Abschnitt 0: Streckenlänge\nDie Strecke umfasst 0.23 km.\n\n..."
+}
+
+Fehlerbehandlung
+
+400 (Bad Request): Ungültige Eingabedaten, z. B. ungültige Koordinaten, ungültige GPX-Datei, zu wenige Koordinaten, oder zu viele Trackpunkte (max. 100.000).
+500 (Server Error): Fehler bei der Verarbeitung, z. B. beim Speichern der Heatmap oder Parsen der GPX-Datei. Überprüfe app.log für Details.
+
+Lizenz
+MIT License
