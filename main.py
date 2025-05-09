@@ -605,7 +605,7 @@ def heatmap_quick() -> Any:
                 groups.append({
                     "signature": signature,
                     "segments": [seg],
-                    "centers": [info["center"],
+                    "centers": [info["center"]],
                     "sani": info["sani_needed"]
                 })
             else:
