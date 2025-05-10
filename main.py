@@ -9,7 +9,6 @@ import json
 from datetime import datetime
 from astral.sun import sun
 from cachetools import TTLCache
-from chardet import detect
 from flask import Flask, request, jsonify, send_file
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -18,9 +17,10 @@ from gpxpy import parse as parse_gpx
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from celery import Celery
 from config import (
     MIN_SEGMENT_LENGTH_KM, MAX_POINTS, DEFAULT_WEATHER, VALID_FAHRER_TYPES,
-    VALID_RENNEN_ART, VALID_GESCHLECHT, VALID_MATERIAL, VALID_STREET_SURFACE
+    VALID_RENNEN_ART, VALID_GESCHLECHT, VALID_MATERIAL, VALID_STREET_SURFACE, MAX_SEGMENTS
 )
 
 # Logging configuration
@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 # Flask app setup
 app = Flask(__name__)
 
+# Celery setup
+celery_app = Celery(
+    'tasks',
+    broker=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+    backend=os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+)
+
 # Rate limiting
 limiter = Limiter(
     get_remote_address,
@@ -44,7 +51,7 @@ limiter = Limiter(
 # Weather cache (TTL: 1 hour)
 weather_cache = TTLCache(maxsize=100, ttl=3600)
 
-# SQLite database setup
+# SQLite database setup (consider switching to PostgreSQL for production)
 engine = create_engine("sqlite:///chunks.db")
 Base = declarative_base()
 
@@ -84,7 +91,8 @@ def get_weather(lat, lon, timestamp):
     try:
         response = requests.get(
             f"http://api.weatherstack.com/current",
-            params={"access_key": api_key, "query": f"{lat},{lon}"}
+            params={"access_key": api_key, "query": f"{lat},{lon}"},
+            timeout=5  # Add timeout to avoid hanging
         )
         response.raise_for_status()
         data = response.json()
@@ -96,6 +104,9 @@ def get_weather(lat, lon, timestamp):
         }
         weather_cache[cache_key] = weather
         return weather
+    except requests.Timeout:
+        logger.error("Weather API timed out")
+        return DEFAULT_WEATHER
     except Exception as e:
         logger.error(f"Weather API error: {e}")
         return DEFAULT_WEATHER
@@ -111,7 +122,7 @@ def calculate_distance(coordinates):
     return total_distance
 
 def group_segments(coordinates, distance_km):
-    """Group coordinates into segments."""
+    """Group coordinates into segments with a limit on max segments."""
     segments = []
     current_segment = [coordinates[0]]
     current_distance = 0.0
@@ -131,9 +142,12 @@ def group_segments(coordinates, distance_km):
                     sum(c[1] for c in current_segment) / len(current_segment)
                 ]
             })
+            if len(segments) >= MAX_SEGMENTS:
+                logger.warning(f"Reached max segments ({MAX_SEGMENTS}), stopping segmentation")
+                break
             current_segment = [coordinates[i]]
             current_distance = 0.0
-    if current_segment:
+    if current_segment and len(segments) < MAX_SEGMENTS:
         segments.append({
             "coordinates": current_segment,
             "distance_km": current_distance,
@@ -206,6 +220,36 @@ def analyze_risk(segment, params, timestamp):
         "sani_needed": sani_needed
     }
 
+# Celery task for heatmap rendering
+@celery_app.task
+def render_heatmap(segments, segment_details):
+    """Render heatmap asynchronously."""
+    try:
+        # Use the center of the first segment as the map starting point
+        center_lat = segments[0]["center"][0]
+        center_lon = segments[0]["center"][1]
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
+        for segment, details in zip(segments, segment_details):
+            color = "green" if details["risk"] <= 2 else "orange" if details["risk"] <= 3 else "red"
+            folium.PolyLine(
+                locations=[[c[0], c[1]] for c in segment["coordinates"]],
+                color=color,
+                weight=5
+            ).add_to(m)
+            if details["sani_needed"]:
+                folium.Marker(
+                    location=[details["center"]["lat"], details["center"]["lon"]],
+                    popup="🚑 Sanitäter recommended",
+                    icon=folium.Icon(color="red")
+                ).add_to(m)
+        heatmap_file = f"static/heatmap_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html"
+        os.makedirs("static", exist_ok=True)
+        m.save(heatmap_file)
+        return heatmap_file
+    except Exception as e:
+        logger.error(f"Celery heatmap rendering failed: {str(e)}")
+        raise
+
 # API Endpoints
 @app.route("/", methods=["GET"])
 def health_check():
@@ -216,105 +260,97 @@ def health_check():
 @limiter.limit("10 per minute")
 def heatmap_quick():
     """Generate heatmap and risk analysis."""
-    data = request.get_json()
-    if not data or "coordinates" not in data or "start_time" not in data:
-        return jsonify({"error": "Missing coordinates or start_time"}), 400
-    
-    coordinates = data["coordinates"]
-    valid, error = validate_coordinates(coordinates)
-    if not valid:
-        return jsonify({"error": error}), 400
-    
-    start_time = data["start_time"]
     try:
-        datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-    except ValueError:
-        return jsonify({"error": "Invalid start_time format"}), 400
-    
-    params = {
-        "fahrer_typ": data.get("fahrer_typ", VALID_FAHRER_TYPES[0]),
-        "anzahl": data.get("anzahl", 5),
-        "rennen_art": data.get("rennen_art", ""),
-        "geschlecht": data.get("geschlecht", ""),
-        "alter": data.get("alter", 42),
-        "material": data.get("material", VALID_MATERIAL[1]),
-        "schutzausruestung": data.get("schutzausruestung", {"helm": False, "protektoren": False}),
-        "overuse_knee": data.get("overuse_knee", False),
-        "rueckenschmerzen": data.get("rueckenschmerzen", False),
-        "massenstart": data.get("massenstart", False),
-        "wetter_override": data.get("wetter_override"),
-        "street_surface": data.get("street_surface", VALID_STREET_SURFACE[0])
-    }
-    
-    distance_km = calculate_distance(coordinates)
-    segments = group_segments(coordinates, distance_km)
-    segment_details = [analyze_risk(segment, params, start_time) for segment in segments]
-    
-    # Generate heatmap
-    m = folium.Map(location=[coordinates[0][0], coordinates[0][1]], zoom_start=13)
-    for segment, details in zip(segments, segment_details):
-        color = "green" if details["risk"] <= 2 else "orange" if details["risk"] <= 3 else "red"
-        folium.PolyLine(
-            locations=[[c[0], c[1]] for c in segment["coordinates"]],
-            color=color,
-            weight=5
-        ).add_to(m)
-        if details["sani_needed"]:
-            folium.Marker(
-                location=[details["center"]["lat"], details["center"]["lon"]],
-                popup="🚑 Sanitäter recommended",
-                icon=folium.Icon(color="red")
-            ).add_to(m)
-    
-    heatmap_file = f"static/heatmap_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html"
-    os.makedirs("static", exist_ok=True)  # Ensure static directory exists
-    m.save(heatmap_file)
-    
-    # Generate report
-    report = "\n".join([
-        f"Route Length: The route covers {distance_km:.1f} km.",
-        f"Weather Conditions: Representative Point: (Lat: {segments[0]['center'][0]:.3f}, Lon: {segments[0]['center'][1]:.3f})\n"
-        f"Date and Time: {start_time}\n"
-        f"Temperature: {segment_details[0]['weather']['temperature']}°C, "
-        f"Wind: {segment_details[0]['weather']['wind_speed']} km/h, "
-        f"Precipitation: {segment_details[0]['weather']['precip']} mm, "
-        f"Condition: {segment_details[0]['weather']['condition']}\n"
-        f"Source: WeatherStack",
-        "Risk Assessment per Segment: " + "\n".join(
-            f"Segment {d['segment_index']}: Risk: {d['risk']} "
-            f"(Slope: {d['slope']:.1f}%, Terrain: {d['terrain']}, Surface: {d['street_surface']})"
-            f"{' – 🚑 Sanitäter recommended' if d['sani_needed'] else ''}"
-            for d in segment_details
-        ),
-        f"Overall Risk: Average Risk Score: {sum(d['risk'] for d in segment_details) / len(segment_details):.1f}",
-        f"Likely Injuries: Typical Injuries: {', '.join(set(sum([d['injuries'] for d in segment_details], [])))}\n"
-        f"Recommended Studies: (Rehlinghaus 2022), (Nelson 2010)",
-        "Prevention Recommendations: Watch for sharp curves, ride cautiously on steep slopes",
-        "Sources: Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, p. 5), (Nelson 2010), "
-        "(Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\nWeather Data: WeatherStack",
-        f"Interactive Map Details: Heatmap URL: https://gpx-heatmap-api.onrender.com/{heatmap_file}\n"
-        f"Color Scale: green = low risk, orange = medium risk, red = high risk.\n"
-        f"🚑 markers indicate segments where a paramedic is recommended."
-    ])
-    
-    logger.info(f"Generated heatmap for {len(coordinates)} points, {len(segments)} segments")
-    return jsonify({
-        "heatmap_url": f"https://gpx-heatmap-api.onrender.com/{heatmap_file}",
-        "distance_km": distance_km,
-        "segments": segment_details,
-        "detailed_report": report
-    })
+        data = request.get_json()
+        if not data or "coordinates" not in data or "start_time" not in data:
+            return jsonify({"error": "Missing coordinates or start_time"}), 400
+        
+        coordinates = data["coordinates"]
+        valid, error = validate_coordinates(coordinates)
+        if not valid:
+            return jsonify({"error": error}), 400
+        
+        start_time = data["start_time"]
+        try:
+            datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        except ValueError:
+            return jsonify({"error": "Invalid start_time format"}), 400
+        
+        params = {
+            "fahrer_typ": data.get("fahrer_typ", VALID_FAHRER_TYPES[0]),
+            "anzahl": data.get("anzahl", 5),
+            "rennen_art": data.get("rennen_art", ""),
+            "geschlecht": data.get("geschlecht", ""),
+            "alter": data.get("alter", 42),
+            "material": data.get("material", VALID_MATERIAL[1]),
+            "schutzausruestung": data.get("schutzausruestung", {"helm": False, "protektoren": False}),
+            "overuse_knee": data.get("overuse_knee", False),
+            "rueckenschmerzen": data.get("rueckenschmerzen", False),
+            "massenstart": data.get("massenstart", False),
+            "wetter_override": data.get("wetter_override"),
+            "street_surface": data.get("street_surface", VALID_STREET_SURFACE[0])
+        }
+        
+        distance_km = calculate_distance(coordinates)
+        segments = group_segments(coordinates, distance_km)
+        segment_details = [analyze_risk(segment, params, start_time) for segment in segments]
+        
+        # Offload heatmap rendering to Celery
+        task = render_heatmap.delay(segments, segment_details)
+        try:
+            heatmap_file = task.get(timeout=60)  # Wait up to 60 seconds for the task to complete
+        except Exception as e:
+            logger.error(f"Heatmap rendering task failed: {str(e)}")
+            return jsonify({"error": "Failed to render heatmap, please try again later"}), 500
+        
+        # Generate report
+        report = "\n".join([
+            f"Route Length: The route covers {distance_km:.1f} km.",
+            f"Weather Conditions: Representative Point: (Lat: {segments[0]['center'][0]:.3f}, Lon: {segments[0]['center'][1]:.3f})\n"
+            f"Date and Time: {start_time}\n"
+            f"Temperature: {segment_details[0]['weather']['temperature']}°C, "
+            f"Wind: {segment_details[0]['weather']['wind_speed']} km/h, "
+            f"Precipitation: {segment_details[0]['weather']['precip']} mm, "
+            f"Condition: {segment_details[0]['weather']['condition']}\n"
+            f"Source: WeatherStack",
+            "Risk Assessment per Segment: " + "\n".join(
+                f"Segment {d['segment_index']}: Risk: {d['risk']} "
+                f"(Slope: {d['slope']:.1f}%, Terrain: {d['terrain']}, Surface: {d['street_surface']})"
+                f"{' – 🚑 Sanitäter recommended' if d['sani_needed'] else ''}"
+                for d in segment_details
+            ),
+            f"Overall Risk: Average Risk Score: {sum(d['risk'] for d in segment_details) / len(segment_details):.1f}",
+            f"Likely Injuries: Typical Injuries: {', '.join(set(sum([d['injuries'] for d in segment_details], [])))}\n"
+            f"Recommended Studies: (Rehlinghaus 2022), (Nelson 2010)",
+            "Prevention Recommendations: Watch for sharp curves, ride cautiously on steep slopes",
+            "Sources: Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, p. 5), (Nelson 2010), "
+            "(Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\nWeather Data: WeatherStack",
+            f"Interactive Map Details: Heatmap URL: https://gpx-heatmap-api.onrender.com/{heatmap_file}\n"
+            f"Color Scale: green = low risk, orange = medium risk, red = high risk.\n"
+            f"🚑 markers indicate segments where a paramedic is recommended."
+        ])
+        
+        logger.info(f"Generated heatmap for {len(coordinates)} points, {len(segments)} segments")
+        return jsonify({
+            "heatmap_url": f"https://gpx-heatmap-api.onrender.com/{heatmap_file}",
+            "distance_km": distance_km,
+            "segments": segment_details,
+            "detailed_report": report
+        })
+    except Exception as e:
+        logger.error(f"Unexpected error in /heatmap-quick: {str(e)}")
+        return jsonify({"error": "Internal server error, please try again later"}), 500
 
 @app.route("/parse-gpx", methods=["POST"])
 @limiter.limit("10 per minute")
 def parse_gpx_endpoint():
     """Parse GPX file and extract coordinates."""
-    data = request.get_json()
-    if not data or "file_base64" not in data:
-        return jsonify({"error": "Missing file_base64 in JSON request"}), 400
-    
-    file_base64 = data["file_base64"]
     try:
+        data = request.get_json()
+        if not data or "file_base64" not in data:
+            return jsonify({"error": "Missing file_base64 in JSON request"}), 400
+        
+        file_base64 = data["file_base64"]
         # Decode Base64
         content = base64.b64decode(file_base64, validate=True)
         # Convert to string assuming UTF-8 (GPX is typically UTF-8)
@@ -347,32 +383,36 @@ def parse_gpx_endpoint():
 @limiter.limit("10 per minute")
 def chunk_upload():
     """Split coordinates into chunks and store."""
-    data = request.get_json()
-    if not data or "coordinates" not in data:
-        return jsonify({"error": "Missing coordinates"}), 400
-    
-    coordinates = data["coordinates"]
-    chunk_size = data.get("chunk_size", 200)
-    valid, error = validate_coordinates(coordinates)
-    if not valid:
-        return jsonify({"error": error}), 400
-    
-    chunks = [coordinates[i:i + chunk_size] for i in range(0, len(coordinates), chunk_size)]
-    session = Session()
-    chunk_filenames = []
     try:
-        for i, chunk in enumerate(chunks):
-            filename = f"chunk_{i+1}.json"
-            session.add(Chunk(filename=filename, data=json.dumps(chunk)))
-            chunk_filenames.append(filename)
-        session.commit()
-        return jsonify({"message": f"{len(chunks)} chunks stored", "chunks": chunk_filenames})
+        data = request.get_json()
+        if not data or "coordinates" not in data:
+            return jsonify({"error": "Missing coordinates"}), 400
+        
+        coordinates = data["coordinates"]
+        chunk_size = data.get("chunk_size", 200)
+        valid, error = validate_coordinates(coordinates)
+        if not valid:
+            return jsonify({"error": error}), 400
+        
+        chunks = [coordinates[i:i + chunk_size] for i in range(0, len(coordinates), chunk_size)]
+        session = Session()
+        chunk_filenames = []
+        try:
+            for i, chunk in enumerate(chunks):
+                filename = f"chunk_{i+1}.json"
+                session.add(Chunk(filename=filename, data=json.dumps(chunk)))
+                chunk_filenames.append(filename)
+            session.commit()
+            return jsonify({"message": f"{len(chunks)} chunks stored", "chunks": chunk_filenames})
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Chunk storage error: {e}")
+            return jsonify({"error": "Error saving chunks"}), 500
+        finally:
+            session.close()
     except Exception as e:
-        session.rollback()
-        logger.error(f"Chunk storage error: {e}")
-        return jsonify({"error": "Error saving chunks"}), 500
-    finally:
-        session.close()
+        logger.error(f"Unexpected error in /chunk-upload: {str(e)}")
+        return jsonify({"error": "Internal server error, please try again later"}), 500
 
 @app.route("/openapi.yaml", methods=["GET"])
 def openapi_spec():
