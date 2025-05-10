@@ -1,4 +1,3 @@
-```yaml
 openapi: 3.0.2
 info:
   title: CycleDoc Heatmap-API
@@ -32,14 +31,15 @@ tags:
   - name: GPX
     description: Endpoints for processing GPX files.
   - name: Utility
-    description: Utility functions like chunking and specification.
+    description: Utility functions like chunking.
 
 paths:
   /:
     get:
       tags: [Health]
       summary: Health-Check Endpoint
-      description: Verifies API is running.
+      description: Verifies API is running. Useful to confirm the API is operational before making other requests.
+      operationId: healthCheck
       responses:
         '200':
           description: API is ready.
@@ -59,6 +59,7 @@ paths:
         Weather data is fetched every 50 km along the route.
         Logs segment and risk details in `app.log`.
         Limited to 100,000 track points.
+      operationId: generateHeatmapQuick
       requestBody:
         required: true
         content:
@@ -84,19 +85,19 @@ paths:
                   type: string
                   enum: ["hobby", "c-lizenz", "anfänger", "a", "b", "elite", "profi"]
                   default: "hobby"
-                  description: Rider type.
+                  description: Rider type. Use 'profi' for professional riders to adjust risk assessment, 'hobby' for casual riders.
                   example: "hobby"
                 anzahl:
                   type: integer
                   minimum: 1
                   default: 5
-                  description: Number of riders.
+                  description: Number of riders. Higher numbers may increase risk in mass starts.
                   example: 5
                 rennen_art:
                   type: string
                   enum: ["downhill", "freeride", "rennen", "road", "mtb", ""]
                   default: ""
-                  description: Race type. Empty string ("") indicates no race type specified.
+                  description: Race type. Empty string ("") indicates no race type specified. Use 'downhill' for high-risk routes.
                   example: "road"
                 geschlecht:
                   type: string
@@ -108,13 +109,13 @@ paths:
                   type: integer
                   minimum: 0
                   default: 42
-                  description: Rider age.
+                  description: Rider age. Older age may influence risk of injuries like back pain.
                   example: 42
                 material:
                   type: string
                   enum: ["carbon", "aluminium", "steel"]
                   default: "aluminium"
-                  description: Bicycle material.
+                  description: Bicycle material. 'carbon' may reduce fatigue but increase crash damage risk.
                   example: "aluminium"
                 schutzausruestung:
                   type: object
@@ -125,26 +126,26 @@ paths:
                     protektoren:
                       type: boolean
                       default: false
-                  description: Rider protective equipment.
+                  description: Rider protective equipment. Setting 'helm' to true reduces head injury risk.
                   example: {"helm": true, "protektoren": false}
                 overuse_knee:
                   type: boolean
                   default: false
-                  description: Indicates knee overuse issues.
+                  description: Indicates knee overuse issues. Set to true for riders with known knee problems.
                   example: false
                 rueckenschmerzen:
                   type: boolean
                   default: false
-                  description: Indicates back pain.
+                  description: Indicates back pain. Set to true for riders with back issues to adjust risk.
                   example: false
                 massenstart:
                   type: boolean
                   default: false
-                  description: Indicates a mass start.
+                  description: Indicates a mass start. Set to true for races with many riders starting together.
                   example: false
                 wetter_override:
                   $ref: '#/components/schemas/Weather'
-                  description: Optional weather data to override API fetch.
+                  description: Optional weather data to override API fetch. Use if real-time weather data is unavailable.
       responses:
         '200':
           description: Heatmap URL, distance, segment info, and detailed report.
@@ -241,40 +242,23 @@ paths:
       tags: [GPX]
       summary: Parse GPX File and Extract Coordinates
       description: |
-        Extracts track or route points from an uploaded GPX file.
-        Supports `multipart/form-data` (file upload), `application/json` (Base64-encoded file), and `application/gpx+xml` (raw XML).
-        Corrects common XML issues (BOM, encoding, missing header).
+        Extracts track or route points from a Base64-encoded GPX file.
         Limited to 100,000 track points.
-        Detects and converts file encoding (e.g., ISO-8859-1 to UTF-8).
+        Only Base64 input is supported for GPT Actions to ensure JSON compatibility.
+      operationId: parseGpxFile
       requestBody:
         required: true
         content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: GPX file to upload.
-              required:
-                - file
           application/json:
             schema:
               type: object
               properties:
                 file_base64:
                   type: string
-                  description: Base64-encoded GPX file.
+                  description: Base64-encoded GPX file. Only this format is supported for GPT Actions.
                   example: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4..."
               required:
                 - file_base64
-          application/gpx+xml:
-            schema:
-              type: string
-              format: binary
-              description: Raw GPX file as XML.
-              example: '<?xml version="1.0" encoding="UTF-8"?><gpx>...</gpx>'
       responses:
         '200':
           description: Extracted coordinates and distance.
@@ -334,6 +318,7 @@ paths:
         Splits coordinates into chunks (default size: 200 points) and stores them in a SQLite database.
         Returns a list of chunk filenames.
         Useful for processing large routes in smaller parts.
+      operationId: chunkUpload
       requestBody:
         required: true
         content:
@@ -381,6 +366,14 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: "Invalid coordinates received"
+        '413':
+          description: Request exceeds track point limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Too many track points: 150000. Maximum allowed: 100000"
         '429':
           description: Rate limit exceeded (10/min per endpoint, 200/day, 50/hour globally).
           content:
@@ -398,28 +391,6 @@ paths:
               example:
                 error: "Error saving chunks"
 
-  /openapi.yaml:
-    get:
-      tags: [Utility]
-      summary: Retrieve OpenAPI Specification
-      description: Returns the OpenAPI YAML specification for this API.
-      responses:
-        '200':
-          description: OpenAPI specification.
-          content:
-            text/yaml:
-              schema:
-                type: string
-                description: YAML content of the OpenAPI specification.
-        '404':
-          description: Specification file not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: "OpenAPI file not found"
-
 components:
   schemas:
     Coordinate:
@@ -427,19 +398,8 @@ components:
       minItems: 2
       maxItems: 3
       items:
-        oneOf:
-          - type: number
-            minimum: -90
-            maximum: 90
-            description: Latitude (index 0).
-          - type: number
-            minimum: -180
-            maximum: 180
-            description: Longitude (index 1).
-          - type: number
-            nullable: true
-            description: Elevation in meters (index 2, optional).
-      description: Coordinate in format [latitude, longitude, elevation?].
+        type: number
+      description: Coordinate in format [latitude, longitude, elevation?]. Latitude (-90 to 90), Longitude (-180 to 180), Elevation (optional).
       example: [48.137154, 11.576124, 520]
 
     Weather:
@@ -480,14 +440,10 @@ components:
           properties:
             lat:
               type: number
-              minimum: -90
-              maximum: 90
               description: Latitude of segment center.
               example: 48.137154
             lon:
               type: number
-              minimum: -180
-              maximum: 180
               description: Longitude of segment center.
               example: 11.576124
           required:
@@ -558,4 +514,3 @@ components:
       description: Standard error response.
       example:
         error: "Invalid coordinates received"
-```
