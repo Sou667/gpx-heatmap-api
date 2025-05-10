@@ -11,6 +11,7 @@ info:
     - Logs are written to `app.log` for debugging (e.g., segment count, weather queries).
     - Rate limits: 10 requests/min per endpoint (except /heatmap-gpx: 5/min), 200/day, 50/hour globally.
     - Maximum 100,000 track points per request.
+    - Routes are segmented into approximately 0.005 km (5 meter) segments for detailed risk analysis.
 
     Changelog: See [GitHub Releases](https://github.com/cycledoc/api/releases).
   version: 1.0.0
@@ -53,7 +54,7 @@ paths:
     post:
       tags: [Heatmap]
       summary: Generate Heatmap and Detailed Report
-      description: Creates an interactive heatmap from coordinates, analyzes risks (weather, slope, curves, rider profile), and generates a report. Limited to 100,000 track points.
+      description: Creates an interactive heatmap from coordinates, analyzes risks (weather, slope, curves, rider profile), and generates a report. Limited to 100,000 track points. Segments are approximately 0.005 km (5 meters) long.
       operationId: generateHeatmapQuick
       requestBody:
         required: true
@@ -166,7 +167,7 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Segment'
-                    description: Route segment details.
+                    description: Route segment details (approximately 0.005 km each).
                   detailed_report:
                     type: string
                     description: Detailed report with route analysis, including route length, weather conditions, risk assessment, likely injuries, prevention recommendations, sources, and interactive map details.
@@ -379,7 +380,7 @@ paths:
       description: |
         Generates interactive heatmaps from an uploaded GPX file by splitting it into chunks (default size: 200 points).
         Analyzes risks (weather, slope, curves) for each chunk and provides a combined report.
-        Limited to 100,000 track points total.
+        Limited to 100,000 track points total. Segments are approximately 0.005 km (5 meters) long.
       operationId: generateHeatmapGpx
       requestBody:
         required: true
@@ -427,7 +428,7 @@ paths:
                           type: array
                           items:
                             $ref: '#/components/schemas/Segment'
-                          description: Route segment details for this chunk.
+                          description: Route segment details for this chunk (approximately 0.005 km each).
                         error:
                           type: string
                           description: Error message if processing failed for this chunk (optional).
@@ -590,7 +591,7 @@ components:
         - risk
         - injuries
         - sani_needed
-      description: Details of a route segment.
+      description: Details of a route segment (approximately 0.005 km).
 
     Error:
       type: object
