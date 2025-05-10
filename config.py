@@ -2,12 +2,12 @@
 # Configuration variables for the CycleDoc Heatmap API
 
 # Segment and track point limits
-MIN_SEGMENT_LENGTH_KM = 1.0  # Minimum segment length in kilometers
-MAX_POINTS = 100000          # Maximum number of track points per request
-MAX_SEGMENTS = 100           # Maximum number of segments for route analysis
+MIN_SEGMENT_LENGTH_KM = 0.005  # Minimum segment length in kilometers (5 meters)
+MAX_POINTS = 100000            # Maximum number of track points per request
+MAX_SEGMENTS = 10000           # Maximum number of segments for route analysis (increased to accommodate finer segmentation)
 
 # Heatmap configuration
-HEATMAP_SIZE = (800, 800)    # Dimensions of the image-based heatmap (width, height)
+HEATMAP_SIZE = (800, 800)      # Dimensions of the image-based heatmap (width, height)
 
 # Default start time for risk analysis (ISO 8601 format)
 DEFAULT_START_TIME = "2025-05-11T10:00:00Z"
