@@ -8,7 +8,7 @@ import math
 import folium
 import requests
 import json
-import logging  # Hinzugefügt: Import für logging
+import logging
 from datetime import datetime
 from astral.sun import sun
 from cachetools import TTLCache
@@ -21,6 +21,9 @@ from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from celery import Celery
+import numpy as np  # Hinzugefügt für bildbasierte Heatmap
+import matplotlib.pyplot as plt  # Hinzugefügt für bildbasierte Heatmap
+import matplotlib.colors as mcolors  # Hinzugefügt für bildbasierte Heatmap
 from config import (
     MIN_SEGMENT_LENGTH_KM, MAX_POINTS, DEFAULT_WEATHER, VALID_FAHRER_TYPES,
     VALID_RENNEN_ART, VALID_GESCHLECHT, VALID_MATERIAL, VALID_STREET_SURFACE, MAX_SEGMENTS
@@ -66,6 +69,9 @@ class Chunk(Base):
 
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
+
+# Constants for heatmap generation
+HEATMAP_SIZE = (800, 800)  # Dimensions der bildbasierten Heatmap
 
 # Helper functions
 def validate_coordinates(coordinates):
@@ -223,10 +229,57 @@ def analyze_risk(segment, params, timestamp):
         "sani_needed": sani_needed
     }
 
-# Celery task for heatmap rendering
+# Neue Funktion für bildbasierte Heatmap
+def generate_image_heatmap(coordinates):
+    """Generate a density-based heatmap image and return as Base64."""
+    if not coordinates:
+        return None, "No coordinates to generate heatmap."
+
+    # Extract latitudes and longitudes
+    lats, lons = zip(*[(coord[0], coord[1]) for coord in coordinates])
+    lat_min, lat_max = min(lats), max(lats)
+    lon_min, lon_max = min(lons), max(lons)
+
+    # Avoid division by zero
+    if lat_max == lat_min or lon_max == lon_min:
+        return None, "Insufficient variation in coordinates to generate heatmap."
+
+    # Normalize coordinates to fit heatmap size
+    x = [int(((lon - lon_min) / (lon_max - lon_min)) * (HEATMAP_SIZE[0] - 1)) for lon in lons]
+    y = [int(((lat - lat_min) / (lat_max - lat_min)) * (HEATMAP_SIZE[1] - 1)) for lat in lats]
+
+    # Create a 2D histogram for the heatmap
+    heatmap, _, _ = np.histogram2d(y, x, bins=HEATMAP_SIZE, range=[[0, HEATMAP_SIZE[1]], [0, HEATMAP_SIZE[0]]])
+
+    # Apply logarithmic scaling to emphasize lower densities
+    heatmap = np.log1p(heatmap)
+
+    # Normalize the heatmap
+    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
+
+    # Create a custom colormap (blue to red)
+    colors = ["blue", "green", "yellow", "red"]
+    cmap = mcolors.LinearSegmentedColormap.from_list("custom", colors)
+
+    # Plot the heatmap
+    plt.figure(figsize=(10, 10))
+    plt.imshow(heatmap, cmap=cmap, interpolation="nearest")
+    plt.axis("off")
+
+    # Save the heatmap to a bytes buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+    plt.close()
+    buf.seek(0)
+
+    # Convert the image to base64
+    img_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return img_base64, None
+
+# Celery task for heatmap rendering (bestehende Folium-basierte Heatmap)
 @celery_app.task
 def render_heatmap(segments, segment_details):
-    """Render heatmap asynchronously."""
+    """Render Folium-based heatmap asynchronously."""
     try:
         # Use the center of the first segment as the map starting point
         center_lat = segments[0]["center"][0]
@@ -253,8 +306,8 @@ def render_heatmap(segments, segment_details):
         logger.error(f"Celery heatmap rendering failed: {str(e)}")
         raise
 
-def process_gpx_in_chunks(gpx_data, chunk_size=200):
-    """Split GPX data into chunks and process them separately."""
+def process_gpx_in_chunks(gpx_data, chunk_size=200, start_time="2025-05-11T10:00:00Z"):
+    """Split GPX data into chunks, process them, and generate both Folium and image-based heatmaps."""
     try:
         gpx = parse_gpx(io.StringIO(gpx_data))
         all_points = []
@@ -265,7 +318,16 @@ def process_gpx_in_chunks(gpx_data, chunk_size=200):
         if len(all_points) > MAX_POINTS:
             return {"error": f"Too many points ({len(all_points)}). Max allowed: {MAX_POINTS}"}, 400
 
-        # Split points into chunks
+        # Convert all points to coordinates format for image-based heatmap
+        all_coordinates = [[point.latitude, point.longitude, point.elevation or 0] for point in all_points]
+
+        # Generate image-based heatmap for the entire route
+        img_base64, img_error = generate_image_heatmap(all_coordinates)
+        if img_error:
+            logger.error(f"Image heatmap generation failed: {img_error}")
+            img_base64 = None
+
+        # Split points into chunks for Folium-based heatmap and risk analysis
         chunks = [all_points[i:i + chunk_size] for i in range(0, len(all_points), chunk_size)]
         results = []
         for chunk in chunks:
@@ -277,9 +339,9 @@ def process_gpx_in_chunks(gpx_data, chunk_size=200):
             # Calculate distance and segments for the chunk
             distance_km = calculate_distance(coordinates)
             segments = group_segments(coordinates, distance_km)
-            segment_details = [analyze_risk(segment, {"fahrer_typ": "hobby", "geschlecht": "m", "anzahl": 2}, "2025-05-11T10:00:00Z") for segment in segments]
+            segment_details = [analyze_risk(segment, {"fahrer_typ": "hobby", "geschlecht": "m", "anzahl": 2}, start_time) for segment in segments]
 
-            # Offload heatmap rendering to Celery
+            # Offload Folium heatmap rendering to Celery
             task = render_heatmap.delay(segments, segment_details)
             try:
                 heatmap_file = task.get(timeout=60)
@@ -291,10 +353,10 @@ def process_gpx_in_chunks(gpx_data, chunk_size=200):
             except Exception as e:
                 logger.error(f"Heatmap rendering task failed for chunk: {str(e)}")
                 results.append({"error": "Failed to render heatmap for this chunk"})
-        return results, 200 if all("error" not in r for r in results) else 500
+        return results, img_base64, 200 if all("error" not in r for r in results) else 500
     except Exception as e:
         logger.error(f"GPX chunk processing error: {str(e)}")
-        return {"error": f"Failed to process GPX: {str(e)}"}, 500
+        return {"error": f"Failed to process GPX: {str(e)}"}, None, 500
 
 # API Endpoints
 @app.route("/", methods=["GET"])
@@ -461,7 +523,7 @@ def chunk_upload():
 @app.route("/heatmap-gpx", methods=["POST"])
 @limiter.limit("5 per minute")
 def heatmap_gpx():
-    """Generate heatmap from GPX file with chunking."""
+    """Generate heatmap from GPX file with chunking, including both Folium and image-based heatmaps."""
     try:
         if "file" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
@@ -470,25 +532,35 @@ def heatmap_gpx():
         if not file.filename.endswith(".gpx"):
             return jsonify({"error": "File must be a .gpx file"}), 400
 
-        gpx_data = file.read().decode("utf-8")
-        results, status = process_gpx_in_chunks(gpx_data, chunk_size=200)
+        gpx_data = file.read().decode("utf-8", errors="replace")
+        results, img_base64, status = process_gpx_in_chunks(gpx_data, chunk_size=200, start_time="2025-05-11T10:00:00Z")
         if status != 200:
             return jsonify(results), status
 
         # Generate combined report for all chunks
+        total_coordinates = sum(len(r.get("segments", [])) for r in results if "segments" in r)
         combined_report = "\n".join([
             f"Total Chunks Processed: {len(results)}",
+            f"Total Coordinates Processed: {total_coordinates}",
             "Individual Chunk Results:",
-            "\n".join([f"Chunk {i+1}: Distance: {r.get('distance_km', 0):.1f} km, Heatmap URL: {r.get('heatmap_url', 'N/A')}" 
-                      for i, r in enumerate(results) if "error" not in r])
+            "\n".join([
+                f"Chunk {i+1}: Distance: {r.get('distance_km', 0):.1f} km, Heatmap URL: {r.get('heatmap_url', 'N/A')}"
+                for i, r in enumerate(results) if "error" not in r
+            ])
         ])
         if any("error" in r for r in results):
             combined_report += "\nErrors occurred in some chunks. Check individual results."
+        if img_base64:
+            combined_report += f"\nDensity Heatmap Generated: Available in response (heatmap_image)"
 
-        return jsonify({
+        response = {
             "results": results,
             "combined_report": combined_report
-        })
+        }
+        if img_base64:
+            response["heatmap_image"] = f"data:image/png;base64,{img_base64}"
+
+        return jsonify(response), 200
     except Exception as e:
         logger.error(f"Unexpected error in /heatmap-gpx: {str(e)}")
         return jsonify({"error": "Internal server error, please try again later"}), 500
