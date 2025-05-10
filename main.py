@@ -267,34 +267,35 @@ def heatmap_quick():
             ).add_to(m)
     
     heatmap_file = f"static/heatmap_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html"
+    os.makedirs("static", exist_ok=True)  # Ensure static directory exists
     m.save(heatmap_file)
     
     # Generate report
-    report = {
-        "section_0": f"The route covers {distance_km:.1f} km.",
-        "section_1": f"Representative Point: (Lat: {segments[0]['center'][0]:.3f}, Lon: {segments[0]['center'][1]:.3f})\n"
-                     f"Date and Time: {start_time}\n"
-                     f"Temperature: {segment_details[0]['weather']['temperature']}°C, "
-                     f"Wind: {segment_details[0]['weather']['wind_speed']} km/h, "
-                     f"Precipitation: {segment_details[0]['weather']['precip']} mm, "
-                     f"Condition: {segment_details[0]['weather']['condition']}\n"
-                     f"Source: WeatherStack",
-        "section_2": "\n".join(
+    report = "\n".join([
+        f"Route Length: The route covers {distance_km:.1f} km.",
+        f"Weather Conditions: Representative Point: (Lat: {segments[0]['center'][0]:.3f}, Lon: {segments[0]['center'][1]:.3f})\n"
+        f"Date and Time: {start_time}\n"
+        f"Temperature: {segment_details[0]['weather']['temperature']}°C, "
+        f"Wind: {segment_details[0]['weather']['wind_speed']} km/h, "
+        f"Precipitation: {segment_details[0]['weather']['precip']} mm, "
+        f"Condition: {segment_details[0]['weather']['condition']}\n"
+        f"Source: WeatherStack",
+        "Risk Assessment per Segment: " + "\n".join(
             f"Segment {d['segment_index']}: Risk: {d['risk']} "
             f"(Slope: {d['slope']:.1f}%, Terrain: {d['terrain']}, Surface: {d['street_surface']})"
             f"{' – 🚑 Sanitäter recommended' if d['sani_needed'] else ''}"
             for d in segment_details
         ),
-        "section_3": f"Average Risk Score: {sum(d['risk'] for d in segment_details) / len(segment_details):.1f}",
-        "section_4": f"Typical Injuries: {', '.join(set(sum([d['injuries'] for d in segment_details], [])))}\n"
-                     f"Recommended Studies: (Rehlinghaus 2022), (Nelson 2010)",
-        "section_5": "Watch for sharp curves, ride cautiously on steep slopes",
-        "section_6": "Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, p. 5), (Nelson 2010), "
-                     "(Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\nWeather Data: WeatherStack",
-        "section_7": f"Heatmap URL: https://gpx-heatmap-api.onrender.com/{heatmap_file}\n"
-                     f"Color Scale: green = low risk, orange = medium risk, red = high risk.\n"
-                     f"🚑 markers indicate segments where a paramedic is recommended."
-    }
+        f"Overall Risk: Average Risk Score: {sum(d['risk'] for d in segment_details) / len(segment_details):.1f}",
+        f"Likely Injuries: Typical Injuries: {', '.join(set(sum([d['injuries'] for d in segment_details], [])))}\n"
+        f"Recommended Studies: (Rehlinghaus 2022), (Nelson 2010)",
+        "Prevention Recommendations: Watch for sharp curves, ride cautiously on steep slopes",
+        "Sources: Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, p. 5), (Nelson 2010), "
+        "(Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\nWeather Data: WeatherStack",
+        f"Interactive Map Details: Heatmap URL: https://gpx-heatmap-api.onrender.com/{heatmap_file}\n"
+        f"Color Scale: green = low risk, orange = medium risk, red = high risk.\n"
+        f"🚑 markers indicate segments where a paramedic is recommended."
+    ])
     
     logger.info(f"Generated heatmap for {len(coordinates)} points, {len(segments)} segments")
     return jsonify({
@@ -308,33 +309,36 @@ def heatmap_quick():
 @limiter.limit("10 per minute")
 def parse_gpx_endpoint():
     """Parse GPX file and extract coordinates."""
-    if "file" in request.files:
-        file = request.files["file"]
-        content = file.read()
-    elif request.is_json:
-        data = request.get_json()
-        if "file_base64" not in data:
-            return jsonify({"error": "Missing file_base64"}), 400
-        content = base64.b64decode(data["file_base64"])
-    else:
-        content = request.data
+    data = request.get_json()
+    if not data or "file_base64" not in data:
+        return jsonify({"error": "Missing file_base64 in JSON request"}), 400
     
+    file_base64 = data["file_base64"]
     try:
-        encoding = detect(content)["encoding"] or "utf-8"
-        content = content.decode(encoding, errors="replace")
-        gpx = parse_gpx(io.StringIO(content))
+        # Decode Base64
+        content = base64.b64decode(file_base64, validate=True)
+        # Convert to string assuming UTF-8 (GPX is typically UTF-8)
+        gpx_content = content.decode("utf-8", errors="replace")
+        gpx = parse_gpx(io.StringIO(gpx_content))
         coordinates = []
         for track in gpx.tracks:
             for segment in track.segments:
                 for point in segment.points:
                     coordinates.append([point.latitude, point.longitude, point.elevation or None])
         if not coordinates:
-            return jsonify({"error": "No track points found"}), 400
+            return jsonify({"error": "No track points found in GPX file"}), 400
         valid, error = validate_coordinates(coordinates)
         if not valid:
             return jsonify({"error": error}), 400
         distance_km = calculate_distance(coordinates)
-        return jsonify({"coordinates": coordinates, "distance_km": distance_km})
+        logger.info(f"Successfully parsed GPX with {len(coordinates)} points")
+        return jsonify({"coordinates": coordinates, "distance_km": round(distance_km, 2)})
+    except base64.binascii.Error as e:
+        logger.error(f"Invalid Base64 data: {e}")
+        return jsonify({"error": "Invalid Base64 encoding"}), 400
+    except UnicodeDecodeError as e:
+        logger.error(f"Decoding error: {e}")
+        return jsonify({"error": "Unable to decode GPX content, ensure UTF-8 encoding"}), 400
     except Exception as e:
         logger.error(f"GPX parsing error: {e}")
         return jsonify({"error": f"Invalid GPX file: {str(e)}"}), 400
