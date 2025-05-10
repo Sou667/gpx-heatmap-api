@@ -1,11 +1,12 @@
-astral>=3.2
-chardet>=5.2.0  # Für Encoding-Erkennung bei GPX-Dateien
-flask>=2.2.2
-folium>=0.12.1
-geopy>=2.2.0
-gpxpy>=1.4.2
-gunicorn>=20.1.0
-requests>=2.28.0
-flask-limiter>=0.9.6  # Für Rate-Limiting in der API
-cachetools>=5.3.0  # Für TTLCache in Wetter-Caching
-sqlalchemy>=2.0.0  # Für SQLite-Datenbank
+Flask==2.3.2
+gpxpy==1.5.0
+requests==2.28.1
+python-dateutil==2.8.2
+folium==0.14.0
+geopy==2.3.0
+astral==2.2
+cachetools==5.3.0
+flask-limiter==3.5.0
+SQLAlchemy==2.0.23
+celery==5.3.6
+redis==5.0.1
