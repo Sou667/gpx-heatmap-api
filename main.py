@@ -21,12 +21,13 @@ from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from celery import Celery
-import numpy as np  # Hinzugefügt für bildbasierte Heatmap
-import matplotlib.pyplot as plt  # Hinzugefügt für bildbasierte Heatmap
-import matplotlib.colors as mcolors  # Hinzugefügt für bildbasierte Heatmap
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from config import (
     MIN_SEGMENT_LENGTH_KM, MAX_POINTS, DEFAULT_WEATHER, VALID_FAHRER_TYPES,
-    VALID_RENNEN_ART, VALID_GESCHLECHT, VALID_MATERIAL, VALID_STREET_SURFACE, MAX_SEGMENTS
+    VALID_RENNEN_ART, VALID_GESCHLECHT, VALID_MATERIAL, VALID_STREET_SURFACE,
+    MAX_SEGMENTS, HEATMAP_SIZE, DEFAULT_START_TIME, RISK_THRESHOLDS
 )
 
 # Logging configuration
@@ -69,9 +70,6 @@ class Chunk(Base):
 
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
-
-# Constants for heatmap generation
-HEATMAP_SIZE = (800, 800)  # Dimensions der bildbasierten Heatmap
 
 # Helper functions
 def validate_coordinates(coordinates):
@@ -186,7 +184,7 @@ def analyze_risk(segment, params, timestamp):
             sum(a*b for a, b in zip(v1, v2)) /
             (math.sqrt(sum(a*a for a in v1)) * math.sqrt(sum(b*b for b in v2)) + 1e-10)
         ))
-        if angle >= 60:
+        if angle >= RISK_THRESHOLDS["sharp_curve_angle"]:
             sharp_curve = True
             break
     
@@ -197,11 +195,11 @@ def analyze_risk(segment, params, timestamp):
     
     # Risk scoring
     risk = 1
-    if abs(slope) > 5:
+    if abs(slope) > RISK_THRESHOLDS["slope"]:
         risk += 1
     if sharp_curve:
         risk += 1
-    if weather["precip"] > 2 or weather["wind_speed"] > 20:
+    if weather["precip"] > RISK_THRESHOLDS["precipitation"] or weather["wind_speed"] > RISK_THRESHOLDS["wind_speed"]:
         risk += 1
     if is_night:
         risk += 1
@@ -229,7 +227,6 @@ def analyze_risk(segment, params, timestamp):
         "sani_needed": sani_needed
     }
 
-# Neue Funktion für bildbasierte Heatmap
 def generate_image_heatmap(coordinates):
     """Generate a density-based heatmap image and return as Base64."""
     if not coordinates:
@@ -276,12 +273,10 @@ def generate_image_heatmap(coordinates):
     img_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return img_base64, None
 
-# Celery task for heatmap rendering (bestehende Folium-basierte Heatmap)
 @celery_app.task
 def render_heatmap(segments, segment_details):
     """Render Folium-based heatmap asynchronously."""
     try:
-        # Use the center of the first segment as the map starting point
         center_lat = segments[0]["center"][0]
         center_lon = segments[0]["center"][1]
         m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
@@ -306,7 +301,7 @@ def render_heatmap(segments, segment_details):
         logger.error(f"Celery heatmap rendering failed: {str(e)}")
         raise
 
-def process_gpx_in_chunks(gpx_data, chunk_size=200, start_time="2025-05-11T10:00:00Z"):
+def process_gpx_in_chunks(gpx_data, chunk_size=200, start_time=DEFAULT_START_TIME):
     """Split GPX data into chunks, process them, and generate both Folium and image-based heatmaps."""
     try:
         gpx = parse_gpx(io.StringIO(gpx_data))
@@ -533,7 +528,7 @@ def heatmap_gpx():
             return jsonify({"error": "File must be a .gpx file"}), 400
 
         gpx_data = file.read().decode("utf-8", errors="replace")
-        results, img_base64, status = process_gpx_in_chunks(gpx_data, chunk_size=200, start_time="2025-05-11T10:00:00Z")
+        results, img_base64, status = process_gpx_in_chunks(gpx_data, chunk_size=200, start_time=DEFAULT_START_TIME)
         if status != 200:
             return jsonify(results), status
 
