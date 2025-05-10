@@ -372,6 +372,108 @@ paths:
               example:
                 error: "Error saving chunks"
 
+  /heatmap-gpx:
+    post:
+      tags: [Heatmap, GPX]
+      summary: Generate Heatmap from GPX File with Chunking
+      description: |
+        Generates interactive heatmaps from an uploaded GPX file by splitting it into chunks (default size: 200 points).
+        Analyzes risks (weather, slope, curves) for each chunk and provides a combined report.
+        Limited to 100,000 track points total.
+      operationId: generateHeatmapGpx
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: GPX file to process.
+                  example: "Gravel CapRide fnfundzwanzig.gpx"
+      responses:
+        '200':
+          description: Heatmap URLs, distances, segment info, and combined report for all chunks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - results
+                  - combined_report
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - heatmap_url
+                        - distance_km
+                        - segments
+                      properties:
+                        heatmap_url:
+                          type: string
+                          description: URL to the generated heatmap for this chunk.
+                          example: "https://gpx-heatmap-api.onrender.com/static/heatmap_20250510120000.html"
+                        distance_km:
+                          type: number
+                          description: Total route length in kilometers for this chunk.
+                          example: 5.2
+                        segments:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/Segment'
+                          description: Route segment details for this chunk.
+                        error:
+                          type: string
+                          description: Error message if processing failed for this chunk (optional).
+                          example: "Failed to render heatmap for this chunk"
+                    description: Array of results for each processed chunk.
+                  combined_report:
+                    type: string
+                    description: Combined report summarizing all chunks, including total chunks processed and individual chunk results.
+                    example: |
+                      Total Chunks Processed: 2
+                      Individual Chunk Results:
+                      Chunk 1: Distance: 5.2 km, Heatmap URL: https://gpx-heatmap-api.onrender.com/static/heatmap_20250510120000.html
+                      Chunk 2: Distance: 4.8 km, Heatmap URL: https://gpx-heatmap-api.onrender.com/static/heatmap_20250510120500.html
+        '400':
+          description: Invalid GPX file or input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "File must be a .gpx file"
+        '413':
+          description: Request exceeds track point limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Too many track points: 150000. Maximum allowed: 100000"
+        '429':
+          description: Rate limit exceeded (5/min for this endpoint, 10/min for others, 200/day, 50/hour globally).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Too many requests: please try again later"
+        '500':
+          description: Server error during processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Internal server error, please try again later"
+
 components:
   schemas:
     Coordinate:
