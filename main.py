@@ -129,7 +129,7 @@ def calculate_distance(coordinates):
     return total_distance
 
 def group_segments(coordinates, distance_km):
-    """Group coordinates into segments with a limit on max segments."""
+    """Group coordinates into segments with a minimum length of 0.005 km."""
     segments = []
     current_segment = [coordinates[0]]
     current_distance = 0.0
@@ -140,18 +140,16 @@ def group_segments(coordinates, distance_km):
         ).kilometers
         current_distance += dist
         current_segment.append(coordinates[i])
-        if current_distance >= MIN_SEGMENT_LENGTH_KM:
-            segments.append({
-                "coordinates": current_segment,
-                "distance_km": current_distance,
-                "center": [
-                    sum(c[0] for c in current_segment) / len(current_segment),
-                    sum(c[1] for c in current_segment) / len(current_segment)
-                ]
-            })
-            if len(segments) >= MAX_SEGMENTS:
-                logger.warning(f"Reached max segments ({MAX_SEGMENTS}), stopping segmentation")
-                break
+        if current_distance >= MIN_SEGMENT_LENGTH_KM or i == len(coordinates) - 1:
+            if current_segment:
+                segments.append({
+                    "coordinates": current_segment,
+                    "distance_km": current_distance,
+                    "center": [
+                        sum(c[0] for c in current_segment) / len(current_segment),
+                        sum(c[1] for c in current_segment) / len(current_segment)
+                    ]
+                })
             current_segment = [coordinates[i]]
             current_distance = 0.0
     if current_segment and len(segments) < MAX_SEGMENTS:
