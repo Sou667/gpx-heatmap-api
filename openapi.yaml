@@ -53,12 +53,7 @@ paths:
     post:
       tags: [Heatmap]
       summary: Generate Heatmap and Detailed Report
-      description: |
-        Processes coordinates and parameters to create an interactive heatmap.
-        Segments the route, analyzes risks (weather, slope, curves, rider profile), and generates a report.
-        Weather data is fetched every 50 km along the route.
-        Logs segment and risk details in `app.log`.
-        Limited to 100,000 track points.
+      description: Creates an interactive heatmap from coordinates, analyzes risks (weather, slope, curves, rider profile), and generates a report. Limited to 100,000 track points.
       operationId: generateHeatmapQuick
       requestBody:
         required: true
