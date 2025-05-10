@@ -2,15 +2,17 @@
   "schema_version": "v1",
   "name_for_human": "CycleDoc Heatmap-API",
   "name_for_model": "cycledoc",
-  "description_for_human": "Analyse von GPX-Daten, Risikobewertung und interaktive Heatmaps für Radsport.",
-  "description_for_model": "Plugin to parse GPX routes, segment them into ~5 m chunks, perform risk analysis based on slope, curves, weather, and generate folium heatmaps.",
-  "auth": { "type": "none" },
+  "description_for_human": "Analyse von GPX-Strecken, Risikobewertung und interaktive Heatmaps für Radsport.",
+  "description_for_model": "Plugin to parse GPX routes, segment them into ~5 m chunks, perform risk analysis based on slope, curves, weather, and generate Folium heatmaps.",
+  "auth": {
+    "type": "none"
+  },
   "api": {
     "type": "openapi",
-    "url": "https://<deine-domain>/openapi.yaml",
+    "url": "https://gpx-heatmap-api.onrender.com/openapi.yaml",
     "is_user_authenticated": false
   },
-  "logo_url": "https://<deine-domain>/logo.png",
+  "logo_url": "https://gpx-heatmap-api.onrender.com/logo.png",
   "contact_email": "support@cycledoc.com",
   "legal_info_url": "https://cycledoc.com/terms"
 }
