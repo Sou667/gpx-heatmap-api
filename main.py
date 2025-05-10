@@ -8,6 +8,7 @@ import math
 import folium
 import requests
 import json
+import logging  # Hinzugefügt: Import für logging
 from datetime import datetime
 from astral.sun import sun
 from cachetools import TTLCache
@@ -156,8 +157,8 @@ def group_segments(coordinates, distance_km):
             "center": [
                 sum(c[0] for c in current_segment) / len(current_segment),
                 sum(c[1] for c in current_segment) / len(current_segment)
-                ]
-            })
+            ]
+        })
     return segments
 
 def analyze_risk(segment, params, timestamp):
