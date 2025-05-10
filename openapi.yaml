@@ -9,7 +9,7 @@ info:
     **Notes:**
     - Weather data requires `WEATHERSTACK_API_KEY` environment variable.
     - Logs are written to `app.log` for debugging (e.g., segment count, weather queries).
-    - Rate limits: 10 requests/min per endpoint, 200/day, 50/hour globally.
+    - Rate limits: 10 requests/min per endpoint (except /heatmap-gpx: 5/min), 200/day, 50/hour globally.
     - Maximum 100,000 track points per request.
 
     Changelog: See [GitHub Releases](https://github.com/cycledoc/api/releases).
@@ -96,7 +96,7 @@ paths:
                   example: "road"
                 geschlecht:
                   type: string
-                  enum: ["m", "mann", "male", "w", "frau", "female", ""]
+                  enum: ["m", "mann", "male", "w", "frau", "female", "divers", "non-binary", ""]
                   default: ""
                   description: Rider gender. Empty string ("") indicates no gender specified.
                   example: "w"
@@ -438,9 +438,15 @@ paths:
                     description: Combined report summarizing all chunks, including total chunks processed and individual chunk results.
                     example: |
                       Total Chunks Processed: 2
+                      Total Coordinates Processed: 400
                       Individual Chunk Results:
                       Chunk 1: Distance: 5.2 km, Heatmap URL: https://gpx-heatmap-api.onrender.com/static/heatmap_20250510120000.html
                       Chunk 2: Distance: 4.8 km, Heatmap URL: https://gpx-heatmap-api.onrender.com/static/heatmap_20250510120500.html
+                      Density Heatmap Generated: Available in response (heatmap_image)
+                  heatmap_image:
+                    type: string
+                    description: Base64-encoded image of the density-based heatmap for the entire route.
+                    example: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAI..."
         '400':
           description: Invalid GPX file or input.
           content:
@@ -553,7 +559,7 @@ components:
           example: false
         street_surface:
           type: string
-          enum: ["asphalt", "cobblestone", "gravel"]
+          enum: ["asphalt", "cobblestone", "gravel", "dirt", "sand"]
           description: Street surface type.
           example: "asphalt"
         risk:
