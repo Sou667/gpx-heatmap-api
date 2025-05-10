@@ -22,10 +22,10 @@ DEFAULT_WEATHER = {
 
 # Risk analysis thresholds
 RISK_THRESHOLDS = {
-    "slope": 5.0,        # Slope threshold for risk increase (in percent)
+    "slope": 5.0,         # Slope threshold for risk increase (in percent)
     "sharp_curve_angle": 60.0,  # Angle threshold for sharp curves (in degrees)
     "precipitation": 2.0,  # Precipitation threshold for risk increase (in mm)
-    "wind_speed": 20.0,  # Wind speed threshold for risk increase (in km/h)
+    "wind_speed": 20.0     # Wind speed threshold for risk increase (in km/h)
 }
 
 # Valid rider profile options
