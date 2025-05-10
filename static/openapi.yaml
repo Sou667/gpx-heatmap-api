@@ -1,0 +1,337 @@
+openapi: 3.1.0
+info:
+  title: CycleDoc Heatmap-API
+  description: |
+    API for processing GPX data, segmenting routes, performing risk analysis, and generating interactive heatmaps.
+    Calculates route length, assesses risks based on weather, slope, curves, and rider parameters, and provides a detailed report.
+    Implements intelligent paramedic logic for critical segments.
+
+    **Notes:**
+    - Weather data requires `WEATHERSTACK_API_KEY` environment variable.
+    - Logs to `app.log`.
+    - Rate limits: 10 requests/min per endpoint, 200/day, 50/hour.
+    - Max 100,000 track points per request.
+    - Segments are ~0.005 km (5 m) long for detailed analysis.
+
+  version: 1.0.0
+  contact:
+    name: CycleDoc Support
+    email: support@cycledoc.com
+    url: https://cycledoc.com/support
+
+servers:
+  - url: https://gpx-heatmap-api.onrender.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health-Check Endpoint
+  - name: GPX
+    description: Parse and chunk GPX
+  - name: Heatmap
+    description: Generate heatmap and risk analysis
+  - name: Utility
+    description: Chunk upload
+
+paths:
+  /:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: API is operational
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "✅ CycleDoc Heatmap-API ready"
+
+  /parse-gpx:
+    post:
+      tags: [GPX]
+      summary: Parse GPX File
+      operationId: parseGpxFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file_base64]
+              properties:
+                file_base64:
+                  type: string
+                  description: Base64-encoded GPX file
+                  example: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgi..."
+      responses:
+        '200':
+          description: Extracted coordinates
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [points]
+                properties:
+                  points:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Coordinate'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /chunk-upload:
+    post:
+      tags: [Utility]
+      summary: Upload chunks
+      operationId: chunkUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chunks]
+              properties:
+                chunks:
+                  type: array
+                  items:
+                    type: object
+                    required: [filename, file_base64]
+                    properties:
+                      filename:
+                        type: string
+                      file_base64:
+                        type: string
+      responses:
+        '200':
+          description: Chunks stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+        '400':
+          description: Invalid chunks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /heatmap-quick:
+    post:
+      tags: [Heatmap]
+      summary: Generate heatmap and detailed report
+      operationId: generateHeatmapQuick
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [coordinates, start_time]
+              properties:
+                coordinates:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Coordinate'
+                start_time:
+                  type: string
+                  format: date-time
+                  example: "2025-04-15T10:00:00Z"
+                mode:
+                  type: string
+                  description: 'rennen' or 'privat'
+                  example: 'privat'
+                street_surface:
+                  type: string
+                  description: road surface (asphalt, gravel, etc.)
+                  example: 'asphalt'
+                wetter_override:
+                  $ref: '#/components/schemas/Weather'
+      responses:
+        '200':
+          description: Heatmap, segments, and report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [distance_km, segments, heatmap_url, detailed_report]
+                properties:
+                  distance_km:
+                    type: number
+                    example: 12.34
+                  segments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Segment'
+                  heatmap_url:
+                    type: string
+                    example: "https://.../heatmap_12345.html"
+                  detailed_report:
+                    type: string
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /heatmap-gpx:
+    post:
+      tags: [Heatmap, GPX]
+      summary: Generate heatmap from GPX file
+      operationId: generateHeatmapGpx
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Combined heatmap result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, combined_report]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [distance_km, segments, heatmap_url]
+                      properties:
+                        distance_km:
+                          type: number
+                        segments:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/Segment'
+                        heatmap_url:
+                          type: string
+                        error:
+                          type: string
+                  combined_report:
+                    type: string
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Coordinate:
+      type: array
+      minItems: 2
+      maxItems: 3
+      items:
+        type: number
+      example: [48.137154, 11.576124, 520]
+
+    Weather:
+      type: object
+      required: [temperature, wind_speed, precip, condition]
+      properties:
+        temperature:
+          type: number
+        wind_speed:
+          type: number
+        precip:
+          type: number
+        condition:
+          type: string
+
+    Segment:
+      type: object
+      required: [segment_index, center, slope, sharp_curve, terrain, weather, nighttime, street_surface, risk, injuries, sani_needed]
+      properties:
+        segment_index:
+          type: integer
+        center:
+          type: object
+          required: [lat, lon]
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+        slope:
+          type: number
+        sharp_curve:
+          type: boolean
+        terrain:
+          type: string
+        weather:
+          $ref: '#/components/schemas/Weather'
+        nighttime:
+          type: boolean
+        street_surface:
+          type: string
+        risk:
+          type: integer
+        injuries:
+          type: array
+          items:
+            type: string
+        sani_needed:
+          type: boolean
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
