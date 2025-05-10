@@ -10,3 +10,4 @@ flask-limiter==3.5.0
 SQLAlchemy==2.0.23
 celery==5.3.6
 redis==5.0.1
+gunicorn==22.0.0  # Neue Zeile hinzufügen
