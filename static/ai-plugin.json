@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "CycleDoc Heatmap-API",
+  "name_for_model": "cycledoc_heatmap",
+  "description_for_human": "Analysiert GPX-Strecken und erstellt interaktive Risiko-Heatmaps.",
+  "description_for_model": "Nutze diese API zum Parsen von GPX, Segmentierung (0.005 km), Risikobewertung und Heatmap-Erzeugung.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://gpx-heatmap-api.onrender.com/openapi.yaml",
+    "has_user_authentication": false
+  },
+  "logo_url": "https://gpx-heatmap-api.onrender.com/static/logo.png",
+  "contact_email": "support@cycledoc.com",
+  "legal_info_url": "https://cycledoc.com/terms"
+}
