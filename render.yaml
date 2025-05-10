@@ -1,42 +1,30 @@
+# render.yaml
+
 services:
   - type: web
-    name: gpx-heatmap-api
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 4 -b 0.0.0.0:$PORT main:app
+    name: cycledoc-api
+    env: python3
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn main:app --bind 0.0.0.0:$PORT"
     envVars:
       - key: WEATHERSTACK_API_KEY
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: redis-gpx-heatmap
-          property: connectionString
+        value: "<YOUR_WEATHERSTACK_API_KEY>"
+    healthCheckPath: "/"
     regions:
+      - oregon
       - frankfurt
-    plan: standard
-    autoDeploy: true
 
-  - type: worker
-    name: celery-worker
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: celery -A main.celery_app worker --loglevel=info
-    envVars:
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: redis-gpx-heatmap
-          property: connectionString
-    regions:
-      - frankfurt
-    plan: standard
-    autoDeploy: true
-
-  - type: redis
-    name: redis-gpx-heatmap
-    ipAllowList: []
-    regions:
-      - frankfurt
+# Optional: Datenbank-Service
+  - type: postgres
+    name: cycledoc-db
     plan: free
-    maxmemoryPolicy: allkeys-lru
+    postgresVersion: "14"
+    envVars:
+      - key: DATABASE_URL
+        fromService: cycledoc-db
+
+# Redis für Celery
+  - type: redis
+    name: cycledoc-redis
+    plan: free
