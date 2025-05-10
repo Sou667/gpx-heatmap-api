@@ -153,6 +153,11 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - heatmap_url
+                  - distance_km
+                  - segments
+                  - detailed_report
                 properties:
                   heatmap_url:
                     type: string
@@ -168,42 +173,17 @@ paths:
                       $ref: '#/components/schemas/Segment'
                     description: Route segment details.
                   detailed_report:
-                    type: object
-                    properties:
-                      section_0:
-                        type: string
-                        description: Route length.
-                      section_1:
-                        type: string
-                        description: Weather conditions.
-                      section_2:
-                        type: string
-                        description: Risk assessment per segment.
-                      section_3:
-                        type: string
-                        description: Overall risk.
-                      section_4:
-                        type: string
-                        description: Likely injuries.
-                      section_5:
-                        type: string
-                        description: Prevention recommendations.
-                      section_6:
-                        type: string
-                        description: Sources.
-                      section_7:
-                        type: string
-                        description: Interactive map details.
-                    description: Structured report with route analysis.
-                    example:
-                      section_0: "The route covers 10.5 km."
-                      section_1: "Representative Point: (Lat: 48.137, Lon: 11.576)\nDate and Time: 2025-04-09T07:00:00Z\nTemperature: 15°C, Wind: 10 km/h, Precipitation: 0 mm, Condition: klar\nSource: WeatherStack"
-                      section_2: "Segment 1: Risk: 2 (Slope: 1.0%, Terrain: Flach, Surface: asphalt)\nSegment 2: Risk: 3 (Slope: 5.0%, Terrain: Anstieg, sharp curve) – 🚑 Sanitäter recommended"
-                      section_3: "Average Risk Score: 2.5 (elevated)"
-                      section_4: "Typical Injuries: Abschürfungen, Prellungen, Claviculafraktur\nRecommended Studies: (Rehlinghaus 2022), (Nelson 2010)"
-                      section_5: "watch for sharp curves, ride cautiously on steep slopes"
-                      section_6: "Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, p. 5), (Nelson 2010), (Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\nWeather Data: WeatherStack"
-                      section_7: "Heatmap URL: https://gpx-heatmap-api.onrender.com/static/heatmap_20250409120000.html\nColor Scale: green = low risk, orange = medium risk, red = high risk.\n🚑 markers indicate segments where a paramedic is recommended."
+                    type: string
+                    description: Detailed report with route analysis, including route length, weather conditions, risk assessment, likely injuries, prevention recommendations, sources, and interactive map details.
+                    example: |
+                      Route Length: The route covers 10.5 km.
+                      Weather Conditions: Representative Point: (Lat: 48.137, Lon: 11.576)\nDate and Time: 2025-04-09T07:00:00Z\nTemperature: 15°C, Wind: 10 km/h, Precipitation: 0 mm, Condition: klar\nSource: WeatherStack
+                      Risk Assessment per Segment: Segment 1: Risk: 2 (Slope: 1.0%, Terrain: Flach, Surface: asphalt)\nSegment 2: Risk: 3 (Slope: 5.0%, Terrain: Anstieg, sharp curve) – 🚑 Sanitäter recommended
+                      Overall Risk: Average Risk Score: 2.5 (elevated)
+                      Likely Injuries: Typical Injuries: Abschürfungen, Prellungen, Claviculafraktur\nRecommended Studies: (Rehlinghaus 2022), (Nelson 2010)
+                      Prevention Recommendations: watch for sharp curves, ride cautiously on steep slopes
+                      Sources: Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, p. 5), (Nelson 2010), (Dannenberg 1996), (Ruedl 2015), (Clarsen 2005)\nWeather Data: WeatherStack
+                      Interactive Map Details: Heatmap URL: https://gpx-heatmap-api.onrender.com/static/heatmap_20250409120000.html\nColor Scale: green = low risk, orange = medium risk, red = high risk.\n🚑 markers indicate segments where a paramedic is recommended.
         '400':
           description: Invalid input data.
           content:
@@ -219,7 +199,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: "Too many track points: 150000. Maximum allowed: 100000"
+                error: "Too many track points: 150000. Maximum allowed: 100,000"
         '429':
           description: Rate limit exceeded (10/min per endpoint, 200/day, 50/hour globally).
           content:
@@ -256,7 +236,7 @@ paths:
                 file_base64:
                   type: string
                   description: Base64-encoded GPX file. Only this format is supported for GPT Actions.
-                  example: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4..."
+                  example: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz48Z3B4Pjx0cms+PHRya3NlZz48dHJrcHQgbGF0PSI0OC4xMzcxNTQiIGxvbj0iMTEuNTc2MTI0Ij48ZWxlPjUyMDwvZWxlPjwvdHJrcHQ+PC90cmtzZWc+PC90cmsgPC9ncHg+"
               required:
                 - file_base64
       responses:
@@ -266,6 +246,9 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - coordinates
+                  - distance_km
                 properties:
                   coordinates:
                     type: array
@@ -292,7 +275,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: "Too many track points: 150000. Maximum allowed: 100000"
+                error: "Too many track points: 150,000. Maximum allowed: 100,000"
         '429':
           description: Rate limit exceeded (10/min per endpoint, 200/day, 50/hour globally).
           content:
@@ -347,6 +330,9 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
+                  - chunks
                 properties:
                   message:
                     type: string
@@ -373,7 +359,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: "Too many track points: 150000. Maximum allowed: 100000"
+                error: "Too many track points: 150,000. Maximum allowed: 100,000"
         '429':
           description: Rate limit exceeded (10/min per endpoint, 200/day, 50/hour globally).
           content:
