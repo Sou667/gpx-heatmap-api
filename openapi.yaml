@@ -1,4 +1,5 @@
-openapi: 3.1.0
+# openapi.yaml  (OpenAPI Spec, downgraded auf 3.0.3 für maximale Kompatibilität)
+openapi: 3.0.3
 info:
   title: CycleDoc Heatmap-API
   description: |
@@ -12,17 +13,14 @@ info:
     - Rate limits: 10 requests/min per endpoint, 200/day, 50/hour.
     - Max 100,000 track points per request.
     - Segments are ~0.005 km (5 m) long for detailed analysis.
-
   version: 1.0.0
   contact:
     name: CycleDoc Support
     email: support@cycledoc.com
     url: https://cycledoc.com/support
-
 servers:
   - url: https://gpx-heatmap-api.onrender.com
     description: Production server
-
 tags:
   - name: Health
     description: Health-Check Endpoint
@@ -32,7 +30,6 @@ tags:
     description: Generate heatmap and risk analysis
   - name: Utility
     description: Chunk upload
-
 paths:
   /:
     get:
@@ -47,7 +44,6 @@ paths:
               schema:
                 type: string
                 example: "✅ CycleDoc Heatmap-API ready"
-
   /parse-gpx:
     post:
       tags: [GPX]
@@ -59,12 +55,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [file_base64]
+              required: [file_base64, start_time]
               properties:
                 file_base64:
                   type: string
                   description: Base64-encoded GPX file
-                  example: "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgi..."
+                start_time:
+                  type: string
+                  format: date-time
       responses:
         '200':
           description: Extracted coordinates
@@ -72,25 +70,15 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [points]
                 properties:
                   points:
                     type: array
                     items:
                       $ref: '#/components/schemas/Coordinate'
         '400':
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
         '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
+          $ref: '#/components/responses/InternalError'
   /chunk-upload:
     post:
       tags: [Utility]
@@ -121,23 +109,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [status]
                 properties:
                   status:
                     type: string
         '400':
-          description: Invalid chunks
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
         '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
+          $ref: '#/components/responses/InternalError'
   /heatmap-quick:
     post:
       tags: [Heatmap]
@@ -158,15 +136,10 @@ paths:
                 start_time:
                   type: string
                   format: date-time
-                  example: "2025-04-15T10:00:00Z"
                 mode:
                   type: string
-                  description: 'rennen' or 'privat'
-                  example: 'privat'
                 street_surface:
                   type: string
-                  description: road surface (asphalt, gravel, etc.)
-                  example: 'asphalt'
                 wetter_override:
                   $ref: '#/components/schemas/Weather'
       responses:
@@ -176,39 +149,23 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [distance_km, segments, heatmap_url, detailed_report]
                 properties:
                   distance_km:
                     type: number
-                    example: 12.34
                   segments:
                     type: array
                     items:
                       $ref: '#/components/schemas/Segment'
                   heatmap_url:
                     type: string
-                    example: "https://.../heatmap_12345.html"
                   detailed_report:
                     type: string
         '400':
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
         '429':
-          description: Rate limit exceeded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/RateLimit'
         '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
+          $ref: '#/components/responses/InternalError'
   /heatmap-gpx:
     post:
       tags: [Heatmap, GPX]
@@ -232,13 +189,11 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [results, combined_report]
                 properties:
                   results:
                     type: array
                     items:
                       type: object
-                      required: [distance_km, segments, heatmap_url]
                       properties:
                         distance_km:
                           type: number
@@ -253,23 +208,11 @@ paths:
                   combined_report:
                     type: string
         '400':
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
         '429':
-          description: Rate limit exceeded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/RateLimit'
         '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/InternalError'
 
 components:
   schemas:
@@ -279,8 +222,6 @@ components:
       maxItems: 3
       items:
         type: number
-      example: [48.137154, 11.576124, 520]
-
     Weather:
       type: object
       required: [temperature, wind_speed, precip, condition]
@@ -293,7 +234,6 @@ components:
           type: number
         condition:
           type: string
-
     Segment:
       type: object
       required: [segment_index, center, slope, sharp_curve, terrain, weather, nighttime, street_surface, risk, injuries, sani_needed]
@@ -328,7 +268,26 @@ components:
             type: string
         sani_needed:
           type: boolean
-
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimit:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
     Error:
       type: object
       required: [error]
