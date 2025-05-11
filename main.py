@@ -14,7 +14,8 @@ from astral import Observer
 from astral.sun import sun
 from cachetools import TTLCache
 from flask import (
-    Flask, jsonify, send_from_directory
+    Flask, Response, request, jsonify,
+    send_from_directory
 )
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -33,9 +34,7 @@ from config import (
 )
 
 # ─────────────── Environment & Logging ───────────────
-
 load_dotenv()
-
 logging.basicConfig(
     filename="app.log",
     level=logging.INFO,
@@ -44,14 +43,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─────────────── Flask & Extensions ───────────────
-
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__, static_folder="static", static_url_path="")
 CORS(app)
 limiter = Limiter(get_remote_address, app=app,
                   default_limits=["10 per minute", "200 per day"])
 
 # ─────────────── Celery ───────────────
-
 celery_app = Celery(
     'tasks',
     broker=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
@@ -59,7 +56,6 @@ celery_app = Celery(
 )
 
 # ─────────────── In-Memory Cache & Database ───────────────
-
 weather_cache = TTLCache(maxsize=500, ttl=3600)  # 1 h TTL
 
 engine = create_engine(os.getenv('DATABASE_URL', 'sqlite:///chunks.db'))
@@ -75,7 +71,6 @@ Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 # ─────────────── Helferfunktionen ───────────────
-
 def validate_coordinates(coords):
     if not isinstance(coords, list) or len(coords) > MAX_POINTS:
         return False, f"Maximal {MAX_POINTS} Punkte erlaubt"
@@ -177,11 +172,11 @@ def analyze_risk(seg, time_iso, mode, override=None):
     night = dt.time() < ss["sunrise"].time() or dt.time() > ss["sunset"].time()
 
     score = 1
-    if abs(slope) > RISK_THRESHOLDS["slope"]: score += 1
-    if sharp: score += 1
+    if abs(slope) > RISK_THRESHOLDS["slope"]:          score += 1
+    if sharp:                                          score += 1
     if weather["precip"] > RISK_THRESHOLDS["precipitation"]: score += 1
     if weather["wind_speed"] > RISK_THRESHOLDS["wind_speed"]: score += 1
-    if night: score += 1
+    if night:                                          score += 1
 
     risk = min(score, 5)
     return {"risk": risk, "sani_needed": risk >= 3, "nighttime": night}
@@ -200,30 +195,25 @@ def generate_heatmap(segs, risks):
 def compile_report(total_km, weather, start_iso, infos, avg_risk):
     lines = [
         f"Streckenlänge: {total_km:.2f} km",
-        f"Wetter (lat={infos[0]['segment']['center']['lat']}, "
-        f"lon={infos[0]['segment']['center']['lon']}): "
+        f"Wetter (lat={infos[0]['segment']['center']['lat']}, lon={infos[0]['segment']['center']['lon']}): "
         f"{weather['temperature']}°C, Wind {weather['wind_speed']} km/h, "
-        f"Niederschlag {weather['precip']} mm, {weather['condition']} "
-        f"({start_iso})",
+        f"Niederschlag {weather['precip']} mm, {weather['condition']} ({start_iso})",
         "",
         "Risikoanalyse pro Segment:"
     ]
     for i, info in enumerate(infos, 1):
         seg = info["segment"]
-        r = info["analysis"]["risk"]
-        terrain = seg["terrain"]
-        sharp = seg["sharp_curve"]
+        r   = info["analysis"]["risk"]
         mark = " 🚑" if info["analysis"]["sani_needed"] else ""
         lines.append(
             f"{i}. Risk={r}, Steigung={seg['slope']:.1f}%, "
-            f"Terrain={terrain}, scharfe Kurve={sharp}{mark}"
+            f"Terrain={seg['terrain']}, scharfe Kurve={seg['sharp_curve']}{mark}"
         )
     lvl = "gering" if avg_risk <= 2 else "erhöht" if avg_risk < 4 else "kritisch"
     lines += [
         "",
         f"Gesamtrisiko: {avg_risk:.2f} ({lvl})",
-        "Wahrscheinliche Verletzungen: " +
-        (", ".join(get_injuries(round(avg_risk))) or "keine"),
+        "Wahrscheinliche Verletzungen: " + (", ".join(get_injuries(round(avg_risk))) or "keine"),
         "",
         "Prävention: Vorsicht bei scharfen Kurven, Tempokontrolle auf Abfahrten.",
         "Quellen: Rehlinghaus2022, Kronisch2002, Nelson2010, Dannenberg1996, Ruedl2015, Clarsen2005",
@@ -232,10 +222,10 @@ def compile_report(total_km, weather, start_iso, infos, avg_risk):
     return "\n".join(lines)
 
 # ─────────────── Routen ───────────────
-
 @app.route("/", methods=["GET", "HEAD"])
 def health_check():
-    return "✅ CycleDoc Heatmap-API ready", 200, {"Content-Type": "text/plain; charset=utf-8"}
+    return Response("✅ CycleDoc Heatmap-API ready",
+                    mimetype="text/plain; charset=utf-8")
 
 @app.route("/.well-known/ai-plugin.json", methods=["GET"])
 def serve_manifest():
@@ -257,7 +247,7 @@ def parse_gpx_endpoint():
     try:
         raw = base64.b64decode(b64)
         gpx = parse_gpx(io.StringIO(raw.decode("utf-8", "ignore")))
-        pts = [[p.latitude, p.longitude, p.elevation]
+        pts = [[p.latitude, p.longitude, p.elevation] 
                for tr in gpx.tracks for seg in tr.segments for p in seg.points]
         ok, err = validate_coordinates(pts)
         if not ok:
@@ -327,16 +317,12 @@ def heatmap_quick():
                 "analysis": analysis
             })
         avg = sum(i["analysis"]["risk"] for i in infos) / len(infos)
-        heatmap_url = generate_heatmap(
-            [i["segment"]["center"] for i in infos],
-            [i["analysis"] for i in infos]
-        )
-        report = compile_report(
-            total_km,
-            get_weather(infos[0]["segment"]["center"]["lat"],
-                        infos[0]["segment"]["center"]["lon"], t),
-            t, infos, avg
-        )
+        heatmap_url = generate_heatmap([i["segment"]["center"] for i in infos],
+                                       [i["analysis"] for i in infos])
+        report = compile_report(total_km,
+                                get_weather(infos[0]["segment"]["center"]["lat"],
+                                            infos[0]["segment"]["center"]["lon"], t),
+                                t, infos, avg)
         return jsonify(
             distance_km=round(total_km, 3),
             segments=[i["segment"] for i in infos],
@@ -383,7 +369,6 @@ def heatmap_gpx():
         return jsonify(error="Internal server error"), 500
 
 # ─────────────── Main ───────────────
-
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
