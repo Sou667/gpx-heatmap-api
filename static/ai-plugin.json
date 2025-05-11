@@ -1,18 +1,17 @@
+// ai-plugin.json  (unter static/.well-known/)
 {
   "schema_version": "v1",
   "name_for_human": "CycleDoc Heatmap-API",
-  "name_for_model": "cycledoc_heatmap",
-  "description_for_human": "Analysiert GPX-Strecken und erstellt interaktive Risiko-Heatmaps.",
-  "description_for_model": "Nutze diese API zum Parsen von GPX, Segmentierung (0.005 km), Risikobewertung und Heatmap-Erzeugung.",
-  "auth": {
-    "type": "none"
-  },
+  "name_for_model": "cycledoc",
+  "description_for_human": "Analyse von GPX-Strecken, Risikobewertung und interaktive Heatmaps für Radsport.",
+  "description_for_model": "Plugin to parse GPX routes, segment into chunks, perform risk analysis based on slope, curves, weather, and generate folium heatmaps.",
+  "auth": { "type": "none" },
   "api": {
     "type": "openapi",
     "url": "https://gpx-heatmap-api.onrender.com/openapi.yaml",
-    "has_user_authentication": false
+    "is_user_authenticated": false
   },
-  "logo_url": "https://gpx-heatmap-api.onrender.com/static/logo.png",
+  "logo_url": "https://gpx-heatmap-api.onrender.com/logo.png",
   "contact_email": "support@cycledoc.com",
   "legal_info_url": "https://cycledoc.com/terms"
 }
