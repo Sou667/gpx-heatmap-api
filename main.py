@@ -392,6 +392,3 @@ def heatmap_gpx():
     except Exception as e:
         logger.error(f"Heatmap-GPX Fehler: {e}")
         return jsonify(error="Internal server error"), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
