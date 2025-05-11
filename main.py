@@ -1,5 +1,5 @@
 # main.py
-# CycleDoc Heatmap API mit vollständiger Implementierung, Static-Serving und Health-Check
+# CycleDoc Heatmap API mit vollständiger Implementierung, Health-Check, CORS und Plugin-Manifest
 
 import os
 import base64
@@ -14,6 +14,7 @@ from astral.sun import sun
 from astral import Observer
 from cachetools import TTLCache
 from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from geopy.distance import geodesic
@@ -39,8 +40,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Flask-Setup: static_folder als Root
-app = Flask(__name__, static_folder="static", static_url_path="")
+# Flask-Setup
+app = Flask(
+    __name__,
+    static_folder="static",
+    static_url_path=""
+)
+CORS(app)  # Erlaubt Cross-Origin Requests
 limiter = Limiter(get_remote_address, app=app,
                   default_limits=["10 per minute", "200 per day"])
 
@@ -54,7 +60,7 @@ celery_app = Celery(
 # Wetter-Cache (TTL: 1h)
 weather_cache = TTLCache(maxsize=100, ttl=3600)
 
-# Datenbank für Chunks
+# SQLite-Datenbank für Chunks
 engine = create_engine(os.getenv('DATABASE_URL', 'sqlite:///chunks.db'))
 Base = declarative_base()
 
@@ -66,16 +72,6 @@ class Chunk(Base):
 
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
-
-# Health-Check Endpoint
-@app.route('/', methods=['GET'])
-def health_check():
-    return '✅ CycleDoc Heatmap-API ready', 200
-
-# Serve OpenAPI spec
-@app.route("/openapi.yaml")
-def serve_openapi():
-    return send_from_directory("static", "openapi.yaml")
 
 # Helferfunktionen
 def validate_coordinates(coords):
@@ -170,12 +166,12 @@ def analyze_risk(segment, start_time, mode, wetter_override=None):
     center = segment["center"]
     weather = wetter_override or get_weather(center[0], center[1], start_time)
     coords = segment["coordinates"]
-    elev_start = coords[0][2] if len(coords[0]) > 2 else 0
-    elev_end   = coords[-1][2] if len(coords[-1]) > 2 else 0
+    elev_start = coords[0][2] if len(coords[0])>2 else 0
+    elev_end   = coords[-1][2] if len(coords[-1])>2 else 0
     elev_diff  = elev_end - elev_start
-    slope = (elev_diff / (segment["distance_km"]*1000) * 100) if segment["distance_km"] > 0 else 0
+    slope = (elev_diff / (segment["distance_km"]*1000) * 100) if segment["distance_km"]>0 else 0
 
-    # Sharp curve detection
+    # Kurven-Winkel
     sharp = False
     for j in range(1, len(coords)-1):
         v1 = (coords[j][0]-coords[j-1][0], coords[j][1]-coords[j-1][1])
@@ -193,15 +189,15 @@ def analyze_risk(segment, start_time, mode, wetter_override=None):
     s   = sun(obs, date=dt.date())
     is_night = dt.time() < s['sunrise'].time() or dt.time() > s['sunset'].time()
 
-    # Risk scoring
     risk = 1
-    if abs(slope) > RISK_THRESHOLDS['slope']: risk += 1
-    if sharp: risk += 1
+    if abs(slope) > RISK_THRESHOLDS['slope']:       risk += 1
+    if sharp:                                      risk += 1
     if weather['precip'] > RISK_THRESHOLDS['precipitation']: risk += 1
     if weather['wind_speed'] > RISK_THRESHOLDS['wind_speed']: risk += 1
-    if is_night: risk += 1
+    if is_night:                                   risk += 1
 
     sani_needed = (risk >= 3)
+
     return {
         "risk": min(risk, 5),
         "sani_needed": sani_needed,
@@ -212,7 +208,7 @@ def generate_heatmap(segments, risks, mode):
     m = folium.Map(location=segments[0]['center'], zoom_start=13)
     markers = []
     for idx, seg in enumerate(segments):
-        clr = 'green' if risks[idx]['risk'] <= 2 else 'orange' if risks[idx]['risk'] == 3 else 'red'
+        clr = 'green' if risks[idx]['risk']<=2 else 'orange' if risks[idx]['risk']==3 else 'red'
         folium.PolyLine(seg['coordinates'], color=clr, weight=5).add_to(m)
         if risks[idx]['sani_needed']:
             markers.append(seg['center'])
@@ -225,42 +221,46 @@ def generate_heatmap(segments, risks, mode):
 def compile_report(distance_km, weather, start_time, segments_info, overall_risk):
     report = f"Route Length: The route covers {distance_km:.2f} km.\n"
     rep = segments_info[0]["segment"]["center"]
-    report += (f"Weather Conditions: Representative Point: (Lat: {rep['lat']}, Lon: {rep['lon']}) "
-               f"Date and Time: {start_time}\n"
-               f"Temperature: {weather['temperature']}°C, Wind: {weather['wind_speed']} km/h, "
-               f"Precipitation: {weather['precip']} mm, Condition: {weather['condition']}\n"
+    report += (f"Weather Conditions: (Lat: {rep['lat']}, Lon: {rep['lon']}) Date: {start_time}\n"
+               f"Temp: {weather['temperature']}°C, Wind: {weather['wind_speed']} km/h, "
+               f"Precip: {weather['precip']} mm, Condition: {weather['condition']}\n"
                f"Source: WeatherStack ({datetime.utcnow().date()})\n")
     report += "Risk Assessment per Segment:\n"
     for idx, info in enumerate(segments_info, start=1):
-        seg = info["segment"]
-        r   = info["analysis"]["risk"]
-        line = (f"Segment {idx}: Risk: {r} (Slope: {seg['slope']:.1f}%, Terrain: {seg['terrain']}, "
-                f"sharp_curve: {seg['sharp_curve']})")
+        seg = info["segment"]; r = info["analysis"]["risk"]
+        line = (f"Segment {idx}: Risk {r} (Slope {seg['slope']:.1f}%, "
+                f"Terrain {seg['terrain']}, SharpCurve {seg['sharp_curve']})")
         if info["analysis"]["sani_needed"]:
             line += " – 🚑 Sanitäter empfohlen"
         report += line + "\n"
-    report += (f"Overall Risk: Average Risk Score: {overall_risk:.2f} "
-               f"({'gering' if overall_risk <= 2 else 'erhöht' if overall_risk < 4 else 'kritisch'})\n")
+    report += (f"Overall Risk: {overall_risk:.2f} "
+               f"({'gering' if overall_risk<=2 else 'erhöht' if overall_risk<4 else 'kritisch'})\n")
     inj = get_injuries(round(overall_risk))
-    if inj:
-        report += "Likely Injuries: " + ", ".join(inj) + "\n"
-    else:
-        report += "Dazu liegen keine Informationen vor.\n"
-    report += "Prevention Recommendations: Vorsicht bei scharfen Kurven, langsam auf steilen Abfahrten fahren.\n"
-    report += ("Sources: Scientific Sources: (Rehlinghaus 2022), (Kronisch 2002, S. 5), "
-               "(Nelson 2010), (Dannenberg 1996), (Ruedl 2015), (Clarsen 2005). Weather Data: WeatherStack\n")
-    report += ("Interactive Map Details: See `heatmap_url` in response. "
-               "Color Scale: green = low, orange = medium, red = high. 🚑 markers indicate segments "
-               "where paramedics are recommended.")
+    report += "Likely Injuries: " + (", ".join(inj) if inj else "keine\n")
+    report += "Prevention: Vorsicht bei Kurven, langsam auf Abfahrten.\n"
+    report += "Sources: Rehlinghaus2022, Kronisch2002, Nelson2010, Dannenberg1996, Ruedl2015, Clarsen2005.\n"
+    report += "Interactive Map: siehe heatmap_url. Grün=gut, Orange=moderat, Rot=hoch. 🚑=Sanitäter empfohlen."
     return report
 
-# GPX parsing
+# Routes
+
+@app.route('/', methods=['GET', 'HEAD'])
+def health_check():
+    return "✅ CycleDoc Heatmap-API ready", 200, {'Content-Type': 'text/plain'}
+
+@app.route('/.well-known/ai-plugin.json')
+def serve_manifest():
+    return send_from_directory('static/.well-known', 'ai-plugin.json', mimetype='application/json')
+
+@app.route('/openapi.yaml')
+def serve_openapi():
+    return send_from_directory('static', 'openapi.yaml', mimetype='application/x-yaml')
+
 @app.route('/parse-gpx', methods=['POST'])
 @limiter.limit("5 per minute")
 def parse_gpx_endpoint():
     data = request.get_json() or {}
-    b64 = data.get('file_base64')
-    start_time = data.get('start_time')
+    b64 = data.get('file_base64'); start_time = data.get('start_time')
     if not b64 or not start_time:
         return jsonify(error="file_base64 und start_time erforderlich."), 400
     try:
@@ -279,7 +279,6 @@ def parse_gpx_endpoint():
         logger.error(f"Parse-GPX Fehler: {e}")
         return jsonify(error="Internal server error"), 500
 
-# Chunk upload
 @app.route('/chunk-upload', methods=['POST'])
 @limiter.limit("5 per minute")
 def chunk_upload():
@@ -290,8 +289,7 @@ def chunk_upload():
     session = Session()
     try:
         for ch in chunks:
-            filename = ch.get('filename')
-            b64 = ch.get('file_base64')
+            filename = ch.get('filename'); b64 = ch.get('file_base64')
             if filename and b64:
                 rec = session.query(Chunk).filter_by(filename=filename).first()
                 if not rec:
@@ -305,15 +303,12 @@ def chunk_upload():
     finally:
         session.close()
 
-# Heatmap quick
 @app.route('/heatmap-quick', methods=['POST'])
 @limiter.limit("10 per hour")
 def heatmap_quick():
     data = request.get_json() or {}
-    coords = data.get('coordinates')
-    start_time = data.get('start_time')
-    mode = data.get('mode', 'privat')
-    surface = data.get('street_surface', 'asphalt')
+    coords = data.get('coordinates'); start_time = data.get('start_time')
+    mode = data.get('mode', 'privat'); surface = data.get('street_surface', 'asphalt')
     if not coords or not start_time:
         return jsonify(error="coordinates und start_time erforderlich."), 400
     valid, err = validate_coordinates(coords)
@@ -326,15 +321,15 @@ def heatmap_quick():
         for seg in segs:
             analysis = analyze_risk(seg, start_time, mode, data.get('wetter_override'))
             center = seg['center']
-            elev_diff = (seg['coordinates'][-1][2] - seg['coordinates'][0][2]) if len(seg['coordinates'][0]) > 2 else 0
-            slope = (elev_diff / (seg['distance_km']*1000) * 100) if seg['distance_km'] > 0 else 0
+            elev_diff = (seg['coordinates'][-1][2] - seg['coordinates'][0][2]) if len(seg['coordinates'][0])>2 else 0
+            slope = (elev_diff/(seg['distance_km']*1000)*100) if seg['distance_km']>0 else 0
             terrain = detect_terrain(slope)
             segments_info.append({
                 "segment": {
-                    "segment_index": len(segments_info) + 1,
+                    "segment_index": len(segments_info)+1,
                     "center": {"lat": center[0], "lon": center[1]},
                     "slope": slope,
-                    "sharp_curve": analysis['risk'] > 1,
+                    "sharp_curve": analysis['risk']>1,
                     "terrain": terrain,
                     "weather": get_weather(center[0], center[1], start_time),
                     "nighttime": analysis['nighttime'],
@@ -346,15 +341,18 @@ def heatmap_quick():
                 "analysis": analysis
             })
         risks = [i['analysis'] for i in segments_info]
-        overall = sum(r['risk'] for r in risks) / len(risks)
+        overall = sum(r['risk'] for r in risks)/len(risks)
         heatmap_url = generate_heatmap([i['segment']['center'] for i in segments_info], risks, mode)
-        report = compile_report(total_km, get_weather(
-            segments_info[0]['segment']['center']['lat'],
-            segments_info[0]['segment']['center']['lon'],
-            start_time
-        ), start_time, segments_info, overall)
+        report = compile_report(total_km,
+            get_weather(
+                segments_info[0]['segment']['center']['lat'],
+                segments_info[0]['segment']['center']['lon'],
+                start_time
+            ),
+            start_time, segments_info, overall
+        )
         return jsonify(
-            distance_km=round(total_km, 3),
+            distance_km=round(total_km,3),
             segments=[i['segment'] for i in segments_info],
             heatmap_url=heatmap_url,
             detailed_report=report
@@ -363,7 +361,6 @@ def heatmap_quick():
         logger.error(f"Heatmap-Quick Fehler: {e}")
         return jsonify(error="Internal server error"), 500
 
-# Heatmap from GPX with chunking
 @app.route('/heatmap-gpx', methods=['POST'])
 @limiter.limit("5 per minute")
 def heatmap_gpx():
@@ -373,10 +370,7 @@ def heatmap_gpx():
     try:
         raw = file.read()
         gpx = parse_gpx(io.StringIO(raw.decode()))
-        points = [
-            [p.latitude, p.longitude, p.elevation]
-            for tr in gpx.tracks for s in tr.segments for p in s.points
-        ]
+        points = [[p.latitude, p.longitude, p.elevation] for tr in gpx.tracks for s in tr.segments for p in s.points]
         chunks = [points[i:i+200] for i in range(0, len(points), 200)]
         results = []
         for ch in chunks:
@@ -389,11 +383,8 @@ def heatmap_gpx():
             risks = [analyze_risk(seg, datetime.utcnow().isoformat()+"Z", 'privat') for seg in segs]
             heatmap = generate_heatmap([seg['center'] for seg in segs], risks, 'privat')
             results.append({
-                "distance_km": round(total_km, 3),
-                "segments": [
-                    {"center": seg['center'], "risk": r['risk'], "sani_needed": r['sani_needed']}
-                    for seg, r in zip(segs, risks)
-                ],
+                "distance_km": round(total_km,3),
+                "segments": [{"center": seg['center'], "risk": r['risk'], "sani_needed": r['sani_needed']} for seg, r in zip(segs,risks)],
                 "heatmap_url": heatmap
             })
         combined_report = f"Total Chunks: {len(chunks)}"
