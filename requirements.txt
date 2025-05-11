@@ -1,9 +1,7 @@
-# requirements.txt
-gunicorn==22.0.0
 flask==2.3.2
 flask-cors==3.0.10
 flask-limiter==3.5.0
-connexion[swagger-ui]==3.1.0            # für OpenAPI-Validation
+connexion[swagger-ui]==3.1.0
 cachetools==5.3.0
 geopy==2.3.0
 gpxpy==1.5.0
@@ -15,5 +13,6 @@ sqlalchemy==2.0.23
 celery==5.3.6
 redis==5.0.1
 python-dotenv==1.0.0
-PyYAML==6.0                             # für YAML-Verarbeitung
-pytest==7.4.0                           # für Tests
+PyYAML==6.0
+pytest==7.4.0
+gunicorn==22.0.0
